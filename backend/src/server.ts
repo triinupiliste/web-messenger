@@ -15,7 +15,7 @@ import { verifyMediaToken } from './middleware/auth.middleware';
 import { registerChatHandlers } from './sockets/chat.socket';
 import { setIO } from './sockets/socket.instance';
 import { runMigrations } from './config/migrate';
-import { ALLOWED_ORIGINS } from './config/env';
+import { isOriginAllowed } from './config/env';
 import { logger } from './utils/logger.util';
 
 dotenv.config();
@@ -24,14 +24,14 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: ALLOWED_ORIGINS,
+        origin: (origin, callback) => callback(null, isOriginAllowed(origin)),
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
     }
 });
 setIO(io);
 
 
-app.use(cors({ origin: ALLOWED_ORIGINS }));
+app.use(cors({ origin: (origin, callback) => callback(null, isOriginAllowed(origin)) }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

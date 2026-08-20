@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -90,6 +91,11 @@ class PushNotificationService {
   static bool _initialized = false;
 
   static Future<void> init() async {
+    // Push notifications aren't wired up for the web build yet (needs a
+    // separate Firebase Web App + service worker) — the web app still
+    // receives everything live via the socket connection while it's open.
+    if (kIsWeb) return;
+
     // One-time setup only — must not gate token registration below, otherwise switching
     // accounts on the same device would leave the backend's fcm_token on the old user.
     if (!_initialized) {
@@ -188,6 +194,7 @@ class PushNotificationService {
   // Best-effort: stop this device from receiving further pushes once logged
   // out. Errors are ignored — logout must never be blocked by this.
   static Future<void> clearToken() async {
+    if (kIsWeb) return;
     try {
       await FirebaseMessaging.instance.deleteToken();
     } catch (_) {}

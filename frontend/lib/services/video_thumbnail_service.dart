@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'api_service.dart';
 
@@ -11,6 +12,14 @@ class VideoThumbnailService {
   static Future<Uint8List?> getThumbnail(String url) async {
     if (_cache.containsKey(url)) {
       return _cache[url];
+    }
+
+    // video_thumbnail only ships native Android/iOS implementations. Skip
+    // outright on web instead of letting it throw a MissingPluginException;
+    // callers already render a placeholder icon when this returns null.
+    if (kIsWeb) {
+      _cache[url] = null;
+      return null;
     }
 
     try {

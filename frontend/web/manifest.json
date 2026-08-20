@@ -1,11 +1,11 @@
 {
-    "name": "frontend",
-    "short_name": "frontend",
+    "name": "Mobile Messenger",
+    "short_name": "Messenger",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "A real-time, encrypted chat app with text, image and video messaging.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -26,3 +26,18 @@ const DEFAULT_ALLOWED_ORIGINS = [
 export const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
     : DEFAULT_ALLOWED_ORIGINS;
+
+// Matches any localhost/127.0.0.1 origin regardless of port — outside of
+// production this lets `flutter run -d chrome` (which picks a random dev
+// server port on every run) talk to a locally-run backend without having to
+// add every port to ALLOWED_ORIGINS by hand. Never applied in production.
+const LOCAL_DEV_ORIGIN_PATTERN = /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/;
+
+export function isOriginAllowed(origin: string | undefined): boolean {
+    // No Origin header at all means a non-browser client (the mobile app,
+    // curl, server-to-server) — those aren't subject to CORS anyway.
+    if (!origin) return true;
+    if (ALLOWED_ORIGINS.includes(origin)) return true;
+    if (process.env.NODE_ENV !== 'production' && LOCAL_DEV_ORIGIN_PATTERN.test(origin)) return true;
+    return false;
+}

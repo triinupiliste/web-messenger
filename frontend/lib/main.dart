@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -42,8 +43,15 @@ void main() {
     // frame, so the app doesn't flash the default theme then swap.
     await ThemeService.loadSavedTheme();
 
-    await Firebase.initializeApp();
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    // Firebase Cloud Messaging push notifications aren't wired up for the web
+    // build yet (that needs a separate Firebase Web App registration, VAPID
+    // key, and a service worker) — skip it there so startup doesn't throw.
+    // The web app still gets real-time updates via the socket connection
+    // while it's open; PushNotificationService.init() also no-ops on web.
+    if (!kIsWeb) {
+      await Firebase.initializeApp();
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    }
     // Not const: RestartWidget's builder must construct a fresh MyApp instance on
     // every rebuild, otherwise a const instance is reused and theme refreshes no-op.
     runApp(RestartWidget(builder: (context) => MyApp()));
