@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/theme_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common/restart_widget.dart';
+import 'active_sessions_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -104,6 +105,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: _isDarkMode,
               activeThumbColor: AppColors.primary,
               onChanged: _toggleDarkMode,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Text(
+              'Account',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.cardBorder),
+              boxShadow: [
+                BoxShadow(color: AppColors.softShadow, blurRadius: 8, offset: const Offset(0, 3)),
+              ],
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              leading: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                ),
+                child: Icon(Icons.devices_rounded, color: AppColors.primary),
+              ),
+              title: Text('Active Sessions', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+              subtitle: Text(
+                'See where you\'re signed in and log out other devices',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const ActiveSessionsScreen()),
+                );
+              },
             ),
           ),
           const SizedBox(height: 20),

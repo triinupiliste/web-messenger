@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { createHash, randomBytes } from 'crypto';
 import { UserRepository } from '../repositories/user.repository';
+import { SessionRepository } from '../repositories/session.repository';
 import { validatePasswordStrength, isValidEmail } from '../utils/validator.util';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email.service';
 import { JWT_SECRET } from '../config/env';
@@ -130,20 +131,28 @@ export class AuthController {
                 return;
             }
 
-            // Enforce single-device login: bumping session version invalidates any
-            // previously-issued token, and this device's open sockets are kicked below.
-            const sessionVersion = await UserRepository.incrementSessionVersion(user.id);
-            const token = jwt.sign({ userId: user.id, email: user.email, sv: sessionVersion }, JWT_SECRET, { expiresIn: '7d' });
+            // Creates a new, independent session for this device/browser. Other
+            // sessions (e.g. the mobile app, or another browser) are left untouched,
+            // so the same account can be logged in from multiple places at once.
+            const platform = typeof req.body.platform === 'string' && req.body.platform.trim()
+                ? req.body.platform.trim().slice(0, 20)
+                : 'mobile';
+            const deviceName = typeof req.body.deviceName === 'string' && req.body.deviceName.trim()
+                ? req.body.deviceName.trim().slice(0, 255)
+                : null;
+            const session = await SessionRepository.create(user.id, platform, deviceName);
+            const token = jwt.sign(
+                { userId: user.id, email: user.email, sessionId: session.id },
+                JWT_SECRET,
+                { expiresIn: '7d' },
+            );
 
-            const io = getIO();
-            if (io) {
-                io.in(user.id).emit('force_logout', {
-                    message: 'You were logged out because your account was signed in on another device.',
-                });
-                io.in(user.id).disconnectSockets(true);
-            }
-
-            res.status(200).json({ message: 'Login successful', token, user: { id: user.id, email: user.email, username: user.username } });
+            res.status(200).json({
+                message: 'Login successful',
+                token,
+                user: { id: user.id, email: user.email, username: user.username },
+                session: { id: session.id, platform: session.platform, deviceName: session.device_name },
+            });
         } catch (error) {
             res.status(500).json({ error: 'Internal server error during login.' });
         }
@@ -315,6 +324,68 @@ export class AuthController {
                 return;
             }
             res.status(400).json({ error: message });
+        }
+    }
+
+    // Lists this account's active sessions/devices (e.g. mobile + web signed in
+    // at once), for a "manage active sessions" settings screen.
+    static async listSessions(req: Request, res: Response): Promise<void> {
+        try {
+            const sessions = await SessionRepository.listActive(req.user!.userId);
+            res.status(200).json({
+                sessions: sessions.map((session) => ({
+                    id: session.id,
+                    platform: session.platform,
+                    deviceName: session.device_name,
+                    createdAt: session.created_at,
+                    lastSeenAt: session.last_seen_at,
+                    isCurrent: session.id === req.user!.sessionId,
+                })),
+            });
+        } catch (error) {
+            logger.error('Failed to list sessions:', error);
+            res.status(500).json({ error: 'Unable to load active sessions right now.' });
+        }
+    }
+
+    // Selective logout: signs out one specific device without affecting the
+    // account's other active sessions.
+    static async revokeSession(req: Request, res: Response): Promise<void> {
+        try {
+            const { sessionId } = req.params;
+            const revoked = await SessionRepository.revoke(sessionId, req.user!.userId);
+            if (!revoked) {
+                res.status(404).json({ error: 'Session not found or already signed out.' });
+                return;
+            }
+
+            const io = getIO();
+            if (io) {
+                io.in(`session:${sessionId}`).emit('force_logout', {
+                    message: 'You were logged out of this device.',
+                });
+                io.in(`session:${sessionId}`).disconnectSockets(true);
+            }
+
+            res.status(200).json({ message: 'That device has been logged out.' });
+        } catch (error) {
+            logger.error('Failed to revoke session:', error);
+            res.status(500).json({ error: 'Unable to log out that device right now.' });
+        }
+    }
+
+    // Clean logout of the calling device's own session (as opposed to the
+    // client just discarding its token locally), so it stops appearing as
+    // "active" to the account's other devices.
+    static async logout(req: Request, res: Response): Promise<void> {
+        try {
+            if (req.user?.sessionId) {
+                await SessionRepository.revoke(req.user.sessionId, req.user.userId);
+            }
+            res.status(200).json({ message: 'Logged out.' });
+        } catch (error) {
+            logger.error('Failed to log out:', error);
+            res.status(500).json({ error: 'Unable to log out right now.' });
         }
     }
 }

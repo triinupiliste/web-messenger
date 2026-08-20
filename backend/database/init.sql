@@ -73,3 +73,20 @@ CREATE TABLE messages (
 
 -- Index to sort and query chat list messages quickly
 CREATE INDEX idx_messages_chat_created ON messages(chat_id, created_at DESC);
+
+-- 7. Sessions Table (Enables multiple concurrent logins per account — one row
+-- per device/browser — and selective, per-device logout. Replaces the older
+-- single-session `users.session_version` counter, which is no longer read;
+-- that column is left in place, unused, for backward compatibility with existing rows.)
+CREATE TABLE sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    platform VARCHAR(20) NOT NULL DEFAULT 'mobile', -- 'mobile' or 'web'
+    device_name TEXT, -- Human-readable label shown in the "Active sessions" UI
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TIMESTAMP -- NULL while the session is active; set on logout / selective logout
+);
+
+-- Speeds up "list my active sessions" and the auth check performed on every request/socket connection.
+CREATE INDEX idx_sessions_user_active ON sessions(user_id) WHERE revoked_at IS NULL;

@@ -178,23 +178,6 @@ export class UserRepository {
         await pool.query('UPDATE users SET fcm_token = $2 WHERE id = $1', [userId, fcmToken]);
     }
 
-    // Bumps the session version for the new JWT; any previously-issued token
-    // carries the old version and gets rejected, enforcing single-device login.
-    static async incrementSessionVersion(userId: string): Promise<number> {
-        const result = await pool.query(
-            'UPDATE users SET session_version = session_version + 1 WHERE id = $1 RETURNING session_version',
-            [userId],
-        );
-        return result.rows[0]?.session_version ?? 0;
-    }
-
-    // Used by the auth middleware/socket handshake to check whether a JWT's
-    // embedded version is still active. Returns null if the account no longer exists.
-    static async getSessionVersion(userId: string): Promise<number | null> {
-        const result = await pool.query('SELECT session_version FROM users WHERE id = $1', [userId]);
-        return result.rows[0]?.session_version ?? null;
-    }
-
     // Lightweight lookup for push notification payloads, without pulling/decrypting a full profile.
     static async getPushInfoById(userId: string): Promise<{ username: string; fcm_token: string | null } | null> {
         const result = await pool.query(

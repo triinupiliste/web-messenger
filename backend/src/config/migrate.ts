@@ -20,6 +20,7 @@ export async function runMigrations(): Promise<void> {
 
     await ensureEmailEncryption();
     await ensureSessionVersionColumn();
+    await ensureSessionsTable();
 }
 
 // Encrypts leftover plaintext emails from before email encryption existed.
@@ -43,7 +44,28 @@ async function ensureEmailEncryption(): Promise<void> {
 }
 
 // Adds the session_version column for DBs created before single-session
-// login existed (see UserRepository.incrementSessionVersion). No-op for new installs.
+// login existed. No longer read by the application (see ensureSessionsTable
+// below), kept only so existing rows aren't left with a missing column.
 async function ensureSessionVersionColumn(): Promise<void> {
     await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0');
+}
+
+// Adds the `sessions` table for DBs created before multi-session/selective-logout
+// support existed (see SessionRepository). No-op for new installs — init.sql
+// already creates it.
+async function ensureSessionsTable(): Promise<void> {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS sessions (
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            platform VARCHAR(20) NOT NULL DEFAULT 'mobile',
+            device_name TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            revoked_at TIMESTAMP
+        )
+    `);
+    await pool.query(
+        'CREATE INDEX IF NOT EXISTS idx_sessions_user_active ON sessions(user_id) WHERE revoked_at IS NULL',
+    );
 }

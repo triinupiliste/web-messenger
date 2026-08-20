@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../config/server_config.dart';
@@ -38,6 +39,22 @@ class ApiService {
   static const Map<String, String> ngrokHeader = {
     'ngrok-skip-browser-warning': 'true',
   };
+
+  // Sent on login so the backend can label this device/browser in the
+  // account's "Active sessions" list (see multi-session support).
+  static String get _currentPlatform => kIsWeb ? 'web' : 'mobile';
+
+  static String get _currentDeviceName {
+    if (kIsWeb) return 'Web Browser';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return 'Android Device';
+      case TargetPlatform.iOS:
+        return 'iPhone/iPad';
+      default:
+        return 'Device';
+    }
+  }
 
   // ngrok's free tier serves an HTML interstitial page to non-browser requests
   // without this header, breaking JSON parsing. Exposed publicly so other
@@ -86,7 +103,12 @@ class ApiService {
     final response = await http.post(
       Uri.parse('$baseUrl/auth/login'),
       headers: {'Content-Type': 'application/json', ..._ngrokHeader},
-      body: jsonEncode({'email': email, 'password': password}),
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+        'platform': _currentPlatform,
+        'deviceName': _currentDeviceName,
+      }),
     );
     final data = jsonDecode(response.body);
     if (response.statusCode == 200 && data['token'] != null) {
@@ -120,6 +142,48 @@ class ApiService {
       throw Exception(data['error'] ?? 'Failed to request password reset');
     }
     return data;
+  }
+
+  // --- SESSIONS (multi-device login / selective logout) ---
+
+  // Signs out this device's own session server-side, so it stops appearing
+  // as "active" to the account's other devices. Best-effort: local logout
+  // must proceed even if this call fails (e.g. no network).
+  static Future<void> logout() async {
+    try {
+      final headers = await _getHeaders();
+      await http
+          .post(Uri.parse('$baseUrl/auth/logout'), headers: headers)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Ignored — see comment above.
+    }
+  }
+
+  static Future<List<dynamic>> getSessions() async {
+    final headers = await _getHeaders();
+    final response =
+        await http.get(Uri.parse('$baseUrl/auth/sessions'), headers: headers);
+    final data = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      return (data is Map && data['sessions'] is List) ? data['sessions'] : [];
+    }
+    _throwIfSessionInvalidated(response);
+    throw Exception(data['error'] ?? 'Failed to load active sessions');
+  }
+
+  // Selective logout: signs out one specific device without affecting the
+  // account's other active sessions.
+  static Future<void> revokeSession(String sessionId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('$baseUrl/auth/sessions/$sessionId'),
+      headers: headers,
+    );
+    if (response.statusCode != 200) {
+      final data = jsonDecode(response.body);
+      throw Exception(data['error'] ?? 'Failed to log out that device');
+    }
   }
 
   // --- USER PROFILE & SEARCH ---

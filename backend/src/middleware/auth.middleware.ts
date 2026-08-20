@@ -1,13 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/env';
-import { hasValidSessionVersion } from '../utils/session.util';
+import { hasValidSession } from '../utils/session.util';
 
 // Decoded JWT payload attached to the request by verifyToken/verifyMediaToken.
 export interface AuthenticatedUser {
     userId: string;
     email: string;
-    sv?: number;
+    sessionId?: string;
 }
 
 // Augments Express's own Request type so any handler behind verifyToken/
@@ -42,7 +42,7 @@ export function verifyToken(req: Request, res: Response, next: NextFunction): vo
             res.status(403).json({ error: 'Token is invalid or expired.' });
             return;
         }
-        hasValidSessionVersion(decoded).then((valid) => {
+        hasValidSession(decoded).then((valid) => {
             if (!valid) {
                 res.status(401).json(SESSION_INVALIDATED_RESPONSE);
                 return;
@@ -73,7 +73,7 @@ export function verifyMediaToken(req: Request, res: Response, next: NextFunction
             res.status(403).json({ error: 'Token is invalid or expired.' });
             return;
         }
-        hasValidSessionVersion(decoded).then((valid) => {
+        hasValidSession(decoded).then((valid) => {
             if (!valid) {
                 res.status(401).json(SESSION_INVALIDATED_RESPONSE);
                 return;

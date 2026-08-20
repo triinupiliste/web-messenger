@@ -169,6 +169,15 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      // Revokes this device's session server-side so it stops showing as
+      // "active" to the account's other devices (mobile/web/etc). This does
+      // not affect any other signed-in session.
+      await ApiService.logout();
+    } catch (e) {
+      debugPrint('Error revoking session on logout: $e');
+    }
+
+    try {
       await StorageService.clearToken();
     } catch (e) {
       debugPrint('Error clearing token: $e');

@@ -3,9 +3,10 @@ import jwt from 'jsonwebtoken';
 import { MessageRepository } from '../repositories/message.repository';
 import { ChatRepository } from '../repositories/chat.repository';
 import { UserRepository } from '../repositories/user.repository';
+import { SessionRepository } from '../repositories/session.repository';
 import { PushService } from '../services/push.service';
 import { JWT_SECRET } from '../config/env';
-import { hasValidSessionVersion } from '../utils/session.util';
+import { hasValidSession } from '../utils/session.util';
 import { logger } from '../utils/logger.util';
 
 function buildMessagePreview(content: string | null | undefined, mediaType: string): string {
@@ -38,11 +39,11 @@ export function registerChatHandlers(io: Server) {
             if (err) {
                 return next(new Error('Authentication error: Invalid or expired token'));
             }
-            // Reject a token whose session version no longer matches — it belongs to a
-            // device signed out by a newer login (see login()/auth.middleware.ts).
-            hasValidSessionVersion(decoded).then((valid) => {
+            // Reject a token whose specific session has been revoked (selectively logged
+            // out, or logged out from that device) — see login()/auth.middleware.ts.
+            hasValidSession(decoded).then((valid) => {
                 if (!valid) {
-                    return next(new Error('Authentication error: Signed in on another device'));
+                    return next(new Error('Authentication error: This session has been logged out'));
                 }
                 socket.data.user = decoded;
                 next();
@@ -52,10 +53,20 @@ export function registerChatHandlers(io: Server) {
 
     io.on('connection', (socket: Socket) => {
         const userId = socket.data.user.userId;
+        const sessionId = socket.data.user.sessionId as string | undefined;
         logger.info(`User connected via WebSocket: ${userId}`);
 
         // Join a personal room for direct notifications (e.g., invites)
         socket.join(userId);
+
+        // Join a per-session room so a selective logout of this specific device can
+        // target only its sockets, without disconnecting the user's other sessions.
+        if (sessionId) {
+            socket.join(`session:${sessionId}`);
+            SessionRepository.touchLastSeen(sessionId).catch((error) => {
+                logger.error('Failed to update session last-seen timestamp:', error);
+            });
+        }
 
         // Join a specific chat room — only if the user is actually a
         // participant, otherwise anyone could join arbitrary chat rooms by ID.
