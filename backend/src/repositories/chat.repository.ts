@@ -1,6 +1,6 @@
 import pool from '../config/database';
-import { ChatListItem } from '../models/chat.model';
-import { decryptFields } from '../utils/encryption.util';
+import { ChatListItem, GroupMember } from '../models/chat.model';
+import { decryptFields, decryptText, encryptText } from '../utils/encryption.util';
 
 export class ChatRepository {
     static async createChatBetweenUsers(user1Id: string, user2Id: string): Promise<string> {
@@ -45,6 +45,87 @@ export class ChatRepository {
         return (result.rowCount ?? 0) > 0;
     }
 
+    // --- Group chats ---
+
+    // Creates a new group chat with just the creator as its sole (owner) member;
+    // additional members are added afterwards via the invite system (see InviteController).
+    static async createGroupChat(creatorId: string, name: string): Promise<string> {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            const chatResult = await client.query(
+                'INSERT INTO chats (is_group, name, created_by) VALUES (TRUE, $1, $2) RETURNING id',
+                [encryptText(name), creatorId],
+            );
+            const chatId = chatResult.rows[0].id;
+
+            await client.query(
+                "INSERT INTO chat_participants (chat_id, user_id, role) VALUES ($1, $2, 'owner')",
+                [chatId, creatorId],
+            );
+
+            await client.query('COMMIT');
+            return chatId;
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    // Basic chat metadata, decrypted — used to validate group operations
+    // (is this chat actually a group? who's the owner?) before acting on them.
+    static async getChatMeta(
+        chatId: string,
+    ): Promise<{ id: string; is_group: boolean; name: string | null; created_by: string | null } | null> {
+        const result = await pool.query(
+            'SELECT id, is_group, name, created_by FROM chats WHERE id = $1',
+            [chatId],
+        );
+        const row = result.rows[0];
+        if (!row) return null;
+        if (row.name) row.name = decryptText(row.name);
+        return row;
+    }
+
+    static async getGroupMembers(chatId: string): Promise<GroupMember[]> {
+        const query = `
+            SELECT cp.user_id, cp.role, u.username, p.avatar_url
+            FROM chat_participants cp
+            JOIN users u ON u.id = cp.user_id
+            LEFT JOIN profiles p ON p.user_id = u.id
+            WHERE cp.chat_id = $1
+            ORDER BY (cp.role = 'owner') DESC, u.username ASC`;
+        const result = await pool.query(query, [chatId]);
+        return result.rows.map((row: any) => decryptFields(row, ['avatar_url']));
+    }
+
+    static async isGroupOwner(chatId: string, userId: string): Promise<boolean> {
+        const result = await pool.query(
+            "SELECT 1 FROM chat_participants WHERE chat_id = $1 AND user_id = $2 AND role = 'owner'",
+            [chatId, userId],
+        );
+        return (result.rowCount ?? 0) > 0;
+    }
+
+    static async addParticipant(chatId: string, userId: string): Promise<void> {
+        await pool.query(
+            "INSERT INTO chat_participants (chat_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT (chat_id, user_id) DO NOTHING",
+            [chatId, userId],
+        );
+    }
+
+    // Full removal (not a soft-delete like 1:1 chat hiding) — used for both a
+    // member leaving voluntarily and an owner removing/kicking someone.
+    static async removeParticipant(chatId: string, userId: string): Promise<void> {
+        await pool.query('DELETE FROM chat_participants WHERE chat_id = $1 AND user_id = $2', [chatId, userId]);
+    }
+
+    static async renameGroup(chatId: string, name: string): Promise<void> {
+        await pool.query('UPDATE chats SET name = $2 WHERE id = $1', [chatId, encryptText(name)]);
+    }
+
     // Distinct "other participant" ids across all this user's chats — used to
     // know who to notify live on profile/avatar changes.
     static async getContactIds(userId: string): Promise<string[]> {
@@ -58,14 +139,19 @@ export class ChatRepository {
     }
 
     static async getChatListForUser(userId: string): Promise<ChatListItem[]> {
+        // Individual (1:1) chats join to the single other participant for their
+        // username/avatar; group chats use the chat's own name/member count instead
+        // (a plain join to "the other participant" wouldn't work — there can be many).
         const query = `
             SELECT 
                 cp.chat_id,
+                c.is_group,
                 cp.is_archived,
                 cp.is_muted,
-                other_cp.user_id AS contact_id,
-                u.username AS contact_username,
-                p.avatar_url AS contact_avatar,
+                CASE WHEN c.is_group THEN NULL ELSE other.user_id END AS contact_id,
+                CASE WHEN c.is_group THEN c.name ELSE other.username END AS contact_username,
+                CASE WHEN c.is_group THEN NULL ELSE other.avatar_url END AS contact_avatar,
+                member_count.cnt AS member_count,
                 m.content AS last_message_content,
                 m.media_type AS last_message_type,
                 m.status AS last_message_status,
@@ -73,9 +159,18 @@ export class ChatRepository {
                 m.created_at AS last_message_time,
                 COALESCE(unread.unread_count, 0)::int AS unread_count
             FROM chat_participants cp
-            JOIN chat_participants other_cp ON cp.chat_id = other_cp.chat_id AND other_cp.user_id != $1
-            JOIN users u ON other_cp.user_id = u.id
-            LEFT JOIN profiles p ON u.id = p.user_id
+            JOIN chats c ON c.id = cp.chat_id
+            LEFT JOIN LATERAL (
+                SELECT ocp.user_id, u.username, p.avatar_url
+                FROM chat_participants ocp
+                JOIN users u ON u.id = ocp.user_id
+                LEFT JOIN profiles p ON p.user_id = u.id
+                WHERE ocp.chat_id = cp.chat_id AND ocp.user_id != $1 AND NOT c.is_group
+                LIMIT 1
+            ) other ON true
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::int AS cnt FROM chat_participants mcp WHERE mcp.chat_id = cp.chat_id AND c.is_group
+            ) member_count ON true
             LEFT JOIN LATERAL (
                 SELECT content, media_type, status, sender_id, created_at 
                 FROM messages 
@@ -95,9 +190,18 @@ export class ChatRepository {
             ORDER BY m.created_at DESC NULLS LAST`;
 
         const result = await pool.query(query, [userId]);
-        
-        // Decrypt text previews and avatar URLs for the chat list
-        return result.rows.map((row: any) => decryptFields(row, ['contact_avatar', 'last_message_content']));
+
+        // Decrypt avatar URL and message preview unconditionally; contact_username is
+        // only encrypted for group chats (it's the group's name) — a plain username
+        // isn't encrypted, so decrypting it unconditionally would just spam
+        // decryptText's "not in expected format" warning for every 1:1 chat.
+        return result.rows.map((row: any) => {
+            const decrypted = decryptFields(row, ['contact_avatar', 'last_message_content']);
+            if (decrypted && decrypted.is_group && decrypted.contact_username) {
+                decrypted.contact_username = decryptText(decrypted.contact_username);
+            }
+            return decrypted;
+        });
     }
 
     static async setChatArchivedStatus(chatId: string, userId: string, isArchived: boolean): Promise<void> {

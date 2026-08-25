@@ -21,6 +21,7 @@ import '../../widgets/chat/typing_indicator_bubble.dart';
 import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/user_avatar.dart';
 import '../home/home_screen.dart';
+import 'group_info_screen.dart';
 
 // Thin wrapper that scopes a fresh MessageProvider to this specific chat room,
 // created and disposed with the screen rather than registered globally.
@@ -28,19 +29,21 @@ class ChatRoomScreen extends StatelessWidget {
   final String chatId;
   final String contactId;
   final String contactName;
+  final bool isGroup;
 
   const ChatRoomScreen({
     super.key,
     required this.chatId,
     this.contactId = '',
     required this.contactName,
+    this.isGroup = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => MessageProvider(chatId)..init(),
-      child: _ChatRoomView(chatId: chatId, contactId: contactId, contactName: contactName),
+      child: _ChatRoomView(chatId: chatId, contactId: contactId, contactName: contactName, isGroup: isGroup),
     );
   }
 }
@@ -49,11 +52,13 @@ class _ChatRoomView extends StatefulWidget {
   final String chatId;
   final String contactId;
   final String contactName;
+  final bool isGroup;
 
   const _ChatRoomView({
     required this.chatId,
     required this.contactId,
     required this.contactName,
+    required this.isGroup,
   });
 
   @override
@@ -77,10 +82,19 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
   bool _showJumpToLatestButton = false;
   Map<String, dynamic>? _replyingTo;
 
+  // Group chats only: userId -> username, used to label messages/replies with
+  // the actual sender's name instead of a single hardcoded "contact".
+  Map<String, String> _memberNames = {};
+
   // Stored so dispose() can unregister exactly these callbacks rather than
   // leaking listeners on the shared socket singleton.
   late final void Function(dynamic) _onErrorFeedback;
   late final void Function(dynamic) _onFriendRemoved;
+  late final void Function(dynamic) _onGroupMemberRemoved;
+  late final void Function(dynamic) _onGroupRenamed;
+
+  // Overrides widget.contactName once a 'group_renamed' event arrives for this chat.
+  String? _liveGroupName;
 
   @override
   void initState() {
@@ -123,9 +137,51 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     };
     SocketService.on(SocketEvents.friendRemoved, _onFriendRemoved);
 
+    // If we're removed from (or leave) this group from another device, or the
+    // owner removes us, bounce back to the chat list instead of leaving a dead
+    // conversation on screen.
+    _onGroupMemberRemoved = (data) {
+      if (!mounted || !widget.isGroup) return;
+      if (data['chatId']?.toString() != widget.chatId) return;
+      final userId = _messageProvider.currentUserId;
+      if (userId == null || data['userId']?.toString() != userId) return;
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      HomeScreen.homeKey.currentState?.switchToChatsTab();
+      SnackBarHelper.showWithMessenger(messenger, 'You are no longer a member of this group.');
+    };
+    SocketService.on(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
+
+    // The group was renamed while this screen is open; update the AppBar title live.
+    _onGroupRenamed = (data) {
+      if (!mounted || !widget.isGroup) return;
+      if (data['chatId']?.toString() != widget.chatId) return;
+      setState(() => _liveGroupName = data['name']?.toString());
+    };
+    SocketService.on(SocketEvents.groupRenamed, _onGroupRenamed);
+
     // Track which messages are actually on screen so we can show a "more
     // messages" pill whenever there's an unread message hidden below the fold.
     _itemPositionsListener.itemPositions.addListener(_handleItemPositionsChanged);
+
+    if (widget.isGroup) {
+      _loadGroupMembers();
+    }
+  }
+
+  Future<void> _loadGroupMembers() async {
+    try {
+      final members = await ApiService.getGroupMembers(widget.chatId);
+      if (!mounted) return;
+      setState(() {
+        _memberNames = {
+          for (final m in members)
+            (m['user_id'] ?? '').toString(): (m['username'] ?? 'User').toString(),
+        };
+      });
+    } catch (e) {
+      // Non-fatal: sender labels just fall back to "Member" until this succeeds.
+    }
   }
 
   // Reacts to MessageProvider changes: jumps to the first unread message once
@@ -245,7 +301,10 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
   }
 
   String _replySenderLabel(Map<String, dynamic> replyTo) {
-    return replyTo['sender_id'] == _messageProvider.currentUserId ? 'You' : widget.contactName;
+    final senderId = replyTo['sender_id']?.toString();
+    if (senderId == _messageProvider.currentUserId) return 'You';
+    if (widget.isGroup) return _memberNames[senderId] ?? 'Member';
+    return widget.contactName;
   }
 
   void _sendMessage({String? mediaUrl, String mediaType = 'text'}) {
@@ -458,6 +517,40 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     }
   }
 
+  Future<void> _confirmLeaveGroup() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Leave Group'),
+        content: Text('Leave "${widget.contactName}"? You will need a new invite to rejoin.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Leave', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final userId = _messageProvider.currentUserId;
+      if (userId == null) return;
+      await ApiService.removeGroupMember(widget.chatId, userId);
+      if (!mounted) return;
+      Navigator.popUntil(context, (route) => route.isFirst);
+      HomeScreen.homeKey.currentState?.switchToChatsTab();
+      context.read<ChatProvider>().fetchChats();
+    } catch (e) {
+      if (!mounted) return;
+      SnackBarHelper.show(context, 'Failed to leave group: ${e.toString().replaceFirst('Exception: ', '')}');
+    }
+  }
+
   Future<void> _viewProfile() async {
     if (widget.contactId.isEmpty) return;
 
@@ -556,6 +649,8 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     _messageProvider.removeListener(_onMessagesChanged);
     SocketService.off(SocketEvents.errorFeedback, _onErrorFeedback);
     SocketService.off(SocketEvents.friendRemoved, _onFriendRemoved);
+    SocketService.off(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
+    SocketService.off(SocketEvents.groupRenamed, _onGroupRenamed);
     _itemPositionsListener.itemPositions.removeListener(_handleItemPositionsChanged);
     _messageController.dispose();
     _audioService.dispose();
@@ -573,7 +668,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.contactName, style: const TextStyle(fontSize: 16)),
+        title: Text(_liveGroupName ?? widget.contactName, style: const TextStyle(fontSize: 16)),
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white),
@@ -588,6 +683,20 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
                 _viewProfile();
               } else if (value == 'remove_friend') {
                 _confirmRemoveFriend();
+              } else if (value == 'group_info') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => GroupInfoScreen(
+                      chatId: widget.chatId,
+                      groupName: _liveGroupName ?? widget.contactName,
+                    ),
+                  ),
+                ).then((_) {
+                  if (widget.isGroup) _loadGroupMembers();
+                });
+              } else if (value == 'leave_group') {
+                _confirmLeaveGroup();
               }
             },
             itemBuilder: (context) => [
@@ -595,14 +704,25 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
                 value: 'mute',
                 child: Text(isMuted ? 'Unmute Notifications' : 'Mute Notifications'),
               ),
-              const PopupMenuItem(
-                value: 'view_profile',
-                child: Text('View Profile'),
-              ),
-              const PopupMenuItem(
-                value: 'remove_friend',
-                child: Text('Remove Friend', style: TextStyle(color: Colors.red)),
-              ),
+              if (widget.isGroup) ...[
+                const PopupMenuItem(
+                  value: 'group_info',
+                  child: Text('Group Info'),
+                ),
+                const PopupMenuItem(
+                  value: 'leave_group',
+                  child: Text('Leave Group', style: TextStyle(color: Colors.red)),
+                ),
+              ] else ...[
+                const PopupMenuItem(
+                  value: 'view_profile',
+                  child: Text('View Profile'),
+                ),
+                const PopupMenuItem(
+                  value: 'remove_friend',
+                  child: Text('Remove Friend', style: TextStyle(color: Colors.red)),
+                ),
+              ],
             ],
           ),
         ],
@@ -654,6 +774,9 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
                                     : null,
                                 replyToSenderName: msg['reply_to'] is Map
                                     ? _replySenderLabel(Map<String, dynamic>.from(msg['reply_to'] as Map))
+                                    : null,
+                                senderName: (widget.isGroup && !isMe)
+                                    ? (_memberNames[msg['sender_id']?.toString()] ?? 'Member')
                                     : null,
                                 onEdit: (isMe && !isDeleted && isConfirmed)
                                     ? () => _editMessage(msg['id'] ?? '', msg['content'] ?? '')

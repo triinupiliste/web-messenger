@@ -7,6 +7,7 @@ import '../../utils/json_utils.dart';
 import '../../utils/snackbar_helper.dart';
 import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/user_avatar.dart';
+import '../search/search_screen.dart';
 import 'chat_room_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -54,12 +55,60 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
+  Future<void> _createGroup() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New Group'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 100,
+          decoration: const InputDecoration(hintText: 'Group name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+
+    if (name == null || name.isEmpty || !mounted) return;
+
+    try {
+      final chatId = await context.read<ChatProvider>().createGroup(name);
+      if (!mounted) return;
+      // Immediately prompt to add members to the group just created.
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => SearchScreen(groupChatId: chatId)),
+      );
+      if (!mounted) return;
+      context.read<ChatProvider>().fetchChats();
+    } catch (e) {
+      if (!mounted) return;
+      SnackBarHelper.show(context, 'Failed to create group: ${e.toString().replaceFirst('Exception: ', '')}');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_showArchived ? 'Archived Messages' : 'Messages'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.group_add_outlined),
+            tooltip: 'New Group',
+            onPressed: _createGroup,
+          ),
           IconButton(
             icon: Icon(_showArchived ? Icons.archive : Icons.archive_outlined),
             tooltip: 'Toggle Archived Chats',
@@ -182,10 +231,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     ],
                   ),
                   child: ListTile(
-                    leading: UserAvatar(
-                      avatarUrl: chat.contactAvatar,
-                      displayName: contactName,
-                    ),
+                    leading: chat.isGroup
+                        ? CircleAvatar(
+                            backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                            child: Icon(Icons.groups_rounded, color: AppColors.primary),
+                          )
+                        : UserAvatar(
+                            avatarUrl: chat.contactAvatar,
+                            displayName: contactName,
+                          ),
                     title: Text(contactName, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                     subtitle: Text(
                       previewText,
@@ -241,6 +295,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                             chatId: chatId,
                             contactId: chat.contactId,
                             contactName: contactName,
+                            isGroup: chat.isGroup,
                           ),
                         ),
                       );

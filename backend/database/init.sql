@@ -30,18 +30,23 @@ CREATE TABLE profiles (
     about_me TEXT -- Stored as encrypted text payload
 );
 
--- 3. Invites Table (Handles Chat Invitations)
+-- 3. Invites Table (Handles Chat Invitations — both 1:1 friend invites and
+-- invitations to join an existing group chat)
 CREATE TABLE invites (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     sender_id UUID REFERENCES users(id) ON DELETE CASCADE,
     receiver_id UUID REFERENCES users(id) ON DELETE CASCADE,
     status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'accepted', 'declined'
+    chat_id UUID REFERENCES chats(id) ON DELETE CASCADE, -- NULL for a 1:1 friend invite; set for a group invite (join this chat on accept)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Chats Table (Base entity for conversations)
+-- 4. Chats Table (Base entity for conversations — 1:1 or group)
 CREATE TABLE chats (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    is_group BOOLEAN NOT NULL DEFAULT FALSE,
+    name TEXT, -- Group display name, stored as encrypted text payload. NULL for 1:1 chats.
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL, -- Group creator/owner; NULL for 1:1 chats
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -49,6 +54,7 @@ CREATE TABLE chats (
 CREATE TABLE chat_participants (
     chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')), -- Group-only: 'owner' can rename/remove members; meaningless (always 'member') for 1:1 chats
     is_archived BOOLEAN DEFAULT FALSE,
     is_muted BOOLEAN DEFAULT FALSE, -- Satisfies the chat muting requirement
     is_deleted BOOLEAN DEFAULT FALSE, -- Per-user "delete chat" (hides it from that user's list only)
@@ -90,3 +96,6 @@ CREATE TABLE sessions (
 
 -- Speeds up "list my active sessions" and the auth check performed on every request/socket connection.
 CREATE INDEX idx_sessions_user_active ON sessions(user_id) WHERE revoked_at IS NULL;
+
+-- Speeds up "pending invites for this group" duplicate-invite checks.
+CREATE INDEX idx_invites_chat_id ON invites(chat_id) WHERE chat_id IS NOT NULL;

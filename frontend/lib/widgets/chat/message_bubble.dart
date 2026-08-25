@@ -24,6 +24,9 @@ class MessageBubble extends StatefulWidget {
   // Expected keys: 'sender_id', 'content', 'media_type', 'is_deleted'.
   final Map<String, dynamic>? replyTo;
   final String? replyToSenderName;
+  // Sender's display name, shown above the bubble content. Only meaningful (and
+  // only passed by the caller) for group chat messages from someone else.
+  final String? senderName;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onRetry;
@@ -42,6 +45,7 @@ class MessageBubble extends StatefulWidget {
     required this.isEdited,
     this.replyTo,
     this.replyToSenderName,
+    this.senderName,
     this.onEdit,
     this.onDelete,
     this.onRetry,
@@ -270,6 +274,18 @@ class _MessageBubbleState extends State<MessageBubble> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (widget.senderName != null && widget.senderName!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Text(
+                          widget.senderName!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isMe ? Colors.white70 : AppColors.primary,
+                          ),
+                        ),
+                      ),
                     if (widget.replyTo != null)
                       Container(
                         margin: const EdgeInsets.only(bottom: 6),

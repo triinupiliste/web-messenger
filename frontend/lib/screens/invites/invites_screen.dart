@@ -95,6 +95,9 @@ class InvitesScreenState extends State<InvitesScreen> {
                             final invite = incoming[index];
                             final sender = invite['sender'] ?? {};
                             final senderAvatar = sender['avatar_url']?.toString();
+                            final group = invite['group'];
+                            final isGroupInvite = group != null;
+                            final groupName = group?['name']?.toString() ?? 'a group';
                             return Card(
                               color: AppColors.surface,
                               margin: const EdgeInsets.symmetric(vertical: 6),
@@ -103,15 +106,24 @@ class InvitesScreenState extends State<InvitesScreen> {
                                 side: BorderSide(color: AppColors.primary.withValues(alpha: 0.25)),
                               ),
                               child: ListTile(
-                                leading: UserAvatar(
-                                  avatarUrl: senderAvatar,
-                                  displayName: sender['username']?.toString() ?? '',
-                                ),
-                                title: Text(sender['username'] ?? 'User',
+                                leading: isGroupInvite
+                                    ? CircleAvatar(
+                                        backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                                        child: Icon(Icons.groups_rounded, color: AppColors.primary),
+                                      )
+                                    : UserAvatar(
+                                        avatarUrl: senderAvatar,
+                                        displayName: sender['username']?.toString() ?? '',
+                                      ),
+                                title: Text(
+                                    isGroupInvite ? groupName : (sender['username'] ?? 'User'),
                                     style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: AppColors.textPrimary)),
-                                subtitle: Text(sender['email'] ?? '',
+                                subtitle: Text(
+                                    isGroupInvite
+                                        ? '${sender['username'] ?? 'Someone'} invited you to join this group'
+                                        : (sender['email'] ?? ''),
                                     style: TextStyle(
                                         color: AppColors.textSecondary)),
                                 trailing: Row(
@@ -149,6 +161,9 @@ class InvitesScreenState extends State<InvitesScreen> {
                             final invite = outgoing[index];
                             final recipient = invite['recipient'] ?? {};
                             final recipientAvatar = recipient['avatar_url']?.toString();
+                            final group = invite['group'];
+                            final isGroupInvite = group != null;
+                            final groupName = group?['name']?.toString() ?? 'a group';
                             return Card(
                               color: AppColors.surface,
                               margin: const EdgeInsets.symmetric(vertical: 6),
@@ -165,7 +180,10 @@ class InvitesScreenState extends State<InvitesScreen> {
                                     style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: AppColors.textPrimary)),
-                                subtitle: Text(recipient['email'] ?? '',
+                                subtitle: Text(
+                                    isGroupInvite
+                                        ? 'Invited to join "$groupName"'
+                                        : (recipient['email'] ?? ''),
                                     style: TextStyle(
                                         color: AppColors.textSecondary)),
                                 trailing: Chip(

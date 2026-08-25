@@ -292,7 +292,9 @@ class ApiService {
     }
   }
 
-  static Future<void> sendInvite(String recipientId) async {
+  // If [chatId] is given, this sends a group invite (asking the recipient to
+  // join that existing group chat) instead of a 1:1 friend invite.
+  static Future<void> sendInvite(String recipientId, {String? chatId}) async {
     final token = await StorageService.getToken();
     final response = await http.post(
       Uri.parse('$baseUrl/invites'),
@@ -302,7 +304,8 @@ class ApiService {
         'Authorization': 'Bearer $token',
       },
       body: jsonEncode({
-        'receiverId': recipientId
+        'receiverId': recipientId,
+        if (chatId != null) 'chatId': chatId,
       }),
     );
 
@@ -423,6 +426,63 @@ class ApiService {
       Uri.parse('$baseUrl/chats/$chatId/remove-friend'),
       headers: headers,
     );
+  }
+
+  // --- GROUP CHATS ---
+
+  // Creates a new group chat (with the current user as its owner) and returns its chatId.
+  static Future<String> createGroup(String name) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('$baseUrl/chats/group'),
+      headers: headers,
+      body: jsonEncode({'name': name}),
+    );
+    final data = jsonDecode(response.body);
+    if (response.statusCode == 201) {
+      return data['chatId'] as String;
+    }
+    throw Exception(data['error'] ?? 'Failed to create group');
+  }
+
+  static Future<List<dynamic>> getGroupMembers(String chatId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('$baseUrl/chats/$chatId/members'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data is List) return data;
+    }
+    final data = jsonDecode(response.body);
+    throw Exception(data['error'] ?? 'Failed to fetch group members');
+  }
+
+  // Removes a member from a group; pass the current user's own id to leave the group.
+  static Future<void> removeGroupMember(String chatId, String userId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('$baseUrl/chats/$chatId/members/$userId'),
+      headers: headers,
+    );
+    if (response.statusCode != 200) {
+      final data = jsonDecode(response.body);
+      throw Exception(data['error'] ?? 'Failed to remove group member');
+    }
+  }
+
+  static Future<void> renameGroup(String chatId, String name) async {
+    final headers = await _getHeaders();
+    final response = await http.patch(
+      Uri.parse('$baseUrl/chats/$chatId/name'),
+      headers: headers,
+      body: jsonEncode({'name': name}),
+    );
+    if (response.statusCode != 200) {
+      final data = jsonDecode(response.body);
+      throw Exception(data['error'] ?? 'Failed to rename group');
+    }
   }
 
   // --- PUSH NOTIFICATIONS ---

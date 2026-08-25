@@ -5,6 +5,7 @@ export interface Invite {
     sender_id: string;
     receiver_id: string;
     status: InviteStatus;
+    chat_id?: string | null; // NULL for a 1:1 friend invite; set when inviting into an existing group chat
     created_at: Date;
 }
 
@@ -17,6 +18,12 @@ export interface InviteUserSummary {
     avatar_url: string | null;
 }
 
+// Present on an enriched invite row only when it's a group invite (chat_id is set).
+export interface InviteGroupSummary {
+    chat_id: string;
+    name: string; // Decrypted group name
+}
+
 // Shape returned by InviteRepository.getPendingInvitesForUser/getIncomingInviteById.
 export interface IncomingInviteItem {
     id: string;
@@ -24,6 +31,7 @@ export interface IncomingInviteItem {
     status: InviteStatus;
     created_at: Date;
     sender: InviteUserSummary;
+    group?: InviteGroupSummary | null;
 }
 
 // Shape returned by InviteRepository.getOutgoingInvitesForUser.
@@ -33,4 +41,5 @@ export interface OutgoingInviteItem {
     status: InviteStatus;
     created_at: Date;
     recipient: InviteUserSummary;
+    group?: InviteGroupSummary | null;
 }

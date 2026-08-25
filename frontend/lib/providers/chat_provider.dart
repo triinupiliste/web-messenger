@@ -23,6 +23,8 @@ class ChatProvider with ChangeNotifier {
   late final void Function(dynamic) _onFriendRemoved;
   late final void Function(dynamic) _onInviteResponded;
   late final void Function(dynamic) _onProfileUpdated;
+  late final void Function(dynamic) _onGroupMemberRemoved;
+  late final void Function(dynamic) _onGroupRenamed;
 
   List<ChatModel> get chats => _chats;
   bool get isLoading => _isLoading;
@@ -94,9 +96,11 @@ class ChatProvider with ChangeNotifier {
           final existing = _chats[index];
           _chats[index] = ChatModel(
             chatId: existing.chatId,
+            isGroup: existing.isGroup,
             contactId: existing.contactId,
             contactName: existing.contactName,
             contactAvatar: existing.contactAvatar,
+            memberCount: existing.memberCount,
             lastMessage: data['content'],
             lastMessageType: data['media_type'] ?? data['mediaType'],
             lastMessageTime: data['created_at'] != null 
@@ -139,17 +143,20 @@ class ChatProvider with ChangeNotifier {
       SocketService.on(SocketEvents.inviteResponded, _onInviteResponded);
 
       // A contact changed their username/avatar; patch it into any chat we have with them.
+      // Group chats always have an empty contactId, so this never matches a group by accident.
       _onProfileUpdated = (data) {
         final userId = extractUserId(data, 'userId');
         if (userId == null) return;
-        final index = _chats.indexWhere((c) => c.contactId == userId);
+        final index = _chats.indexWhere((c) => !c.isGroup && c.contactId == userId);
         if (index == -1) return;
         final existing = _chats[index];
         _chats[index] = ChatModel(
           chatId: existing.chatId,
+          isGroup: existing.isGroup,
           contactId: existing.contactId,
           contactName: data['username']?.toString() ?? existing.contactName,
           contactAvatar: data['avatar_url']?.toString() ?? existing.contactAvatar,
+          memberCount: existing.memberCount,
           lastMessage: existing.lastMessage,
           lastMessageType: existing.lastMessageType,
           lastMessageTime: existing.lastMessageTime,
@@ -161,6 +168,43 @@ class ChatProvider with ChangeNotifier {
         notifyListeners();
       };
       SocketService.on(SocketEvents.profileUpdated, _onProfileUpdated);
+
+      // We were removed from (or left) a group; drop it from the list live.
+      // If someone else was removed, just refresh the member count via a refetch
+      // isn't necessary for the chat list, so no action is needed there.
+      _onGroupMemberRemoved = (data) {
+        if (_currentUserId != null && data['userId']?.toString() == _currentUserId) {
+          final chatId = data['chatId'];
+          _chats.removeWhere((c) => c.chatId == chatId);
+          notifyListeners();
+        }
+      };
+      SocketService.on(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
+
+      // A group we're in was renamed; patch the display name live.
+      _onGroupRenamed = (data) {
+        final chatId = data['chatId'];
+        final index = _chats.indexWhere((c) => c.chatId == chatId);
+        if (index == -1) return;
+        final existing = _chats[index];
+        _chats[index] = ChatModel(
+          chatId: existing.chatId,
+          isGroup: existing.isGroup,
+          contactId: existing.contactId,
+          contactName: data['name']?.toString() ?? existing.contactName,
+          contactAvatar: existing.contactAvatar,
+          memberCount: existing.memberCount,
+          lastMessage: existing.lastMessage,
+          lastMessageType: existing.lastMessageType,
+          lastMessageTime: existing.lastMessageTime,
+          lastMessageSenderId: existing.lastMessageSenderId,
+          unreadCount: existing.unreadCount,
+          isArchived: existing.isArchived,
+          isMuted: existing.isMuted,
+        );
+        notifyListeners();
+      };
+      SocketService.on(SocketEvents.groupRenamed, _onGroupRenamed);
 
       _socketListenerAttached = true;
     } catch (e) {
@@ -250,6 +294,14 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
+  // Creates a new group chat with just the current user as a member/owner;
+  // other members are added afterwards by sending them group invites.
+  Future<String> createGroup(String name) async {
+    final chatId = await ApiService.createGroup(name);
+    await fetchChats();
+    return chatId;
+  }
+
   @override
   void dispose() {
     if (_socketListenerAttached) {
@@ -257,6 +309,8 @@ class ChatProvider with ChangeNotifier {
       SocketService.off(SocketEvents.friendRemoved, _onFriendRemoved);
       SocketService.off(SocketEvents.inviteResponded, _onInviteResponded);
       SocketService.off(SocketEvents.profileUpdated, _onProfileUpdated);
+      SocketService.off(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
+      SocketService.off(SocketEvents.groupRenamed, _onGroupRenamed);
     }
     super.dispose();
   }

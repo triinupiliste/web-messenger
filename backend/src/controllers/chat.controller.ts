@@ -105,4 +105,120 @@ export class ChatController {
             res.status(500).json({ error: 'Failed to mark messages as read.' });
         }
     }
+
+    // --- Group chats ---
+
+    // Creates a new group chat with just the requester as its owner; other
+    // members are added afterwards via the invite system (see InviteController).
+    static async createGroup(req: Request, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.userId;
+            const name = (req.body?.name ?? '').toString().trim();
+
+            if (!name) {
+                res.status(400).json({ error: 'A group name is required.' });
+                return;
+            }
+            if (name.length > 100) {
+                res.status(400).json({ error: 'Group name must be 100 characters or fewer.' });
+                return;
+            }
+
+            const chatId = await ChatRepository.createGroupChat(userId, name);
+            res.status(201).json({ message: 'Group created successfully.', chatId });
+        } catch (error) {
+            res.status(500).json({ error: 'Failed to create group.' });
+        }
+    }
+
+    static async getGroupMembers(req: Request, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.userId;
+            const chatId = req.params.chatId as string;
+
+            if (!await ChatRepository.isUserInChat(chatId, userId)) {
+                res.status(403).json({ error: 'You are not a participant in this chat.' });
+                return;
+            }
+
+            const members = await ChatRepository.getGroupMembers(chatId);
+            res.status(200).json(members);
+        } catch (error) {
+            res.status(500).json({ error: 'Failed to fetch group members.' });
+        }
+    }
+
+    // Removes a member from a group: any member can remove themselves (leave),
+    // but only the owner can remove someone else, and the owner can't be removed.
+    static async removeMember(req: Request, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.userId;
+            const chatId = req.params.chatId as string;
+            const targetUserId = req.params.userId as string;
+
+            const chat = await ChatRepository.getChatMeta(chatId);
+            if (!chat || !chat.is_group) {
+                res.status(404).json({ error: 'Group chat not found.' });
+                return;
+            }
+
+            const isSelf = targetUserId === userId;
+            if (!isSelf) {
+                const requesterIsOwner = await ChatRepository.isGroupOwner(chatId, userId);
+                if (!requesterIsOwner) {
+                    res.status(403).json({ error: 'Only the group owner can remove other members.' });
+                    return;
+                }
+                if (chat.created_by === targetUserId) {
+                    res.status(400).json({ error: 'The group owner cannot be removed.' });
+                    return;
+                }
+            }
+
+            await ChatRepository.removeParticipant(chatId, targetUserId);
+
+            getIO()?.to(chatId).emit('group_member_removed', { chatId, userId: targetUserId, removedBySelf: isSelf });
+            getIO()?.to(targetUserId).emit('group_member_removed', { chatId, userId: targetUserId, removedBySelf: isSelf });
+
+            res.status(200).json({ message: isSelf ? 'Left the group.' : 'Member removed.' });
+        } catch (error) {
+            res.status(500).json({ error: 'Failed to remove group member.' });
+        }
+    }
+
+    // Owner-only: renames the group chat.
+    static async renameGroup(req: Request, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.userId;
+            const chatId = req.params.chatId as string;
+            const name = (req.body?.name ?? '').toString().trim();
+
+            if (!name) {
+                res.status(400).json({ error: 'A group name is required.' });
+                return;
+            }
+            if (name.length > 100) {
+                res.status(400).json({ error: 'Group name must be 100 characters or fewer.' });
+                return;
+            }
+
+            const chat = await ChatRepository.getChatMeta(chatId);
+            if (!chat || !chat.is_group) {
+                res.status(404).json({ error: 'Group chat not found.' });
+                return;
+            }
+            if (chat.created_by !== userId) {
+                res.status(403).json({ error: 'Only the group owner can rename the group.' });
+                return;
+            }
+
+            await ChatRepository.renameGroup(chatId, name);
+
+            getIO()?.to(chatId).emit('group_renamed', { chatId, name });
+
+            res.status(200).json({ message: 'Group renamed successfully.' });
+        } catch (error) {
+            res.status(500).json({ error: 'Failed to rename group.' });
+        }
+    }
 }

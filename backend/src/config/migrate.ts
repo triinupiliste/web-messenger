@@ -21,6 +21,7 @@ export async function runMigrations(): Promise<void> {
     await ensureEmailEncryption();
     await ensureSessionVersionColumn();
     await ensureSessionsTable();
+    await ensureGroupChatColumns();
 }
 
 // Encrypts leftover plaintext emails from before email encryption existed.
@@ -68,4 +69,27 @@ async function ensureSessionsTable(): Promise<void> {
     await pool.query(
         'CREATE INDEX IF NOT EXISTS idx_sessions_user_active ON sessions(user_id) WHERE revoked_at IS NULL',
     );
+}
+
+// Adds group chat support (chats.is_group/name/created_by, chat_participants.role,
+// invites.chat_id) for DBs created before it existed. No-op for new installs —
+// init.sql already creates these columns.
+async function ensureGroupChatColumns(): Promise<void> {
+    await pool.query('ALTER TABLE chats ADD COLUMN IF NOT EXISTS is_group BOOLEAN NOT NULL DEFAULT FALSE');
+    await pool.query('ALTER TABLE chats ADD COLUMN IF NOT EXISTS name TEXT');
+    await pool.query('ALTER TABLE chats ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL');
+
+    await pool.query("ALTER TABLE chat_participants ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'member'");
+    // Postgres has no "ADD CONSTRAINT IF NOT EXISTS" — check pg_constraint first so re-running this doesn't error.
+    const { rows } = await pool.query(
+        "SELECT 1 FROM pg_constraint WHERE conname = 'chat_participants_role_check'",
+    );
+    if (rows.length === 0) {
+        await pool.query(
+            "ALTER TABLE chat_participants ADD CONSTRAINT chat_participants_role_check CHECK (role IN ('owner', 'member'))",
+        );
+    }
+
+    await pool.query('ALTER TABLE invites ADD COLUMN IF NOT EXISTS chat_id UUID REFERENCES chats(id) ON DELETE CASCADE');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_invites_chat_id ON invites(chat_id) WHERE chat_id IS NOT NULL');
 }

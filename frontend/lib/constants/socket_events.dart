@@ -24,6 +24,9 @@ class SocketEvents {
   static const String newInvite = 'new_invite';
   static const String inviteResponded = 'invite_responded';
   static const String profileUpdated = 'profile_updated';
+  static const String groupMemberAdded = 'group_member_added';
+  static const String groupMemberRemoved = 'group_member_removed';
+  static const String groupRenamed = 'group_renamed';
 
   // Emitted by the server right before disconnecting a socket whose account
   // just logged in on a different device (single-active-session enforcement).

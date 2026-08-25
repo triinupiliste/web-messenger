@@ -1,8 +1,10 @@
 class ChatModel {
   final String chatId;
+  final bool isGroup;
   final String contactId;
   final String contactName;
   final String? contactAvatar;
+  final int? memberCount;
   final String? lastMessage;
   final String? lastMessageType;
   final DateTime? lastMessageTime;
@@ -13,9 +15,11 @@ class ChatModel {
 
   ChatModel({
     required this.chatId,
+    this.isGroup = false,
     this.contactId = '',
     required this.contactName,
     this.contactAvatar,
+    this.memberCount,
     this.lastMessage,
     this.lastMessageType,
     this.lastMessageTime,
@@ -28,9 +32,13 @@ class ChatModel {
   factory ChatModel.fromJson(Map<String, dynamic> json) {
     return ChatModel(
       chatId: json['chat_id'] ?? '',
+      isGroup: json['is_group'] ?? false,
       contactId: (json['contact_id'] ?? '').toString(),
       contactName: json['contact_username'] ?? 'User',
       contactAvatar: json['contact_avatar'],
+      memberCount: json['member_count'] is int
+          ? json['member_count']
+          : int.tryParse(json['member_count']?.toString() ?? ''),
       lastMessage: json['last_message_content'],
       lastMessageType: json['last_message_type'],
       lastMessageTime: json['last_message_time'] != null

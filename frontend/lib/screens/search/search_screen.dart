@@ -16,7 +16,12 @@ import '../chat/chat_room_screen.dart';
 class SearchScreen extends StatefulWidget {
   final Future<void> Function()? onInviteSent;
 
-  const SearchScreen({super.key, this.onInviteSent});
+  // When set, this screen operates in "Add Members" mode for an existing
+  // group chat instead of the default "find people to friend" mode: invites
+  // sent here ask the recipient to join this group rather than become friends.
+  final String? groupChatId;
+
+  const SearchScreen({super.key, this.onInviteSent, this.groupChatId});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -129,7 +134,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() => _sendingInviteTo.add(user.id));
 
     try {
-      await ApiService.sendInvite(user.id);
+      await ApiService.sendInvite(user.id, chatId: widget.groupChatId);
       if (!mounted) return;
 
       _searchDebounce?.cancel();
@@ -152,7 +157,9 @@ class _SearchScreenState extends State<SearchScreen> {
           icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
           title: const Text('Invitation sent'),
           content: Text(
-            'Your invitation to ${user.username} was sent and is pending.',
+            widget.groupChatId != null
+                ? 'An invite to join the group was sent to ${user.username}.'
+                : 'Your invitation to ${user.username} was sent and is pending.',
             textAlign: TextAlign.center,
           ),
           actions: [
@@ -179,7 +186,27 @@ class _SearchScreenState extends State<SearchScreen> {
     final displayName = trimmedUsername.isEmpty ? 'Unknown user' : trimmedUsername;
 
     Widget actionWidget;
-    if (user.relationshipStatus == 'friends') {
+    // In "Add Members" mode we always show an Add button regardless of 1:1
+    // friend/pending status — group membership is independent of that.
+    if (widget.groupChatId != null) {
+      actionWidget = ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size(84, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+        onPressed: isSending ? null : () => _sendInvite(user),
+        child: isSending
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Text('Add'),
+      );
+    } else if (user.relationshipStatus == 'friends') {
       actionWidget = ElevatedButton(
         style: ElevatedButton.styleFrom(
           minimumSize: const Size(84, 40),
@@ -334,7 +361,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Search')),
+      appBar: AppBar(title: Text(widget.groupChatId != null ? 'Add Members' : 'Search')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
