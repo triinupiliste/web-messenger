@@ -9,6 +9,7 @@ import '../../services/audio_service.dart';
 import '../../services/video_thumbnail_service.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/message_utils.dart';
+import 'poll_bubble.dart';
 
 class MessageBubble extends StatefulWidget {
   final String messageId;
@@ -329,6 +330,12 @@ class _MessageBubbleState extends State<MessageBubble> {
                           color: isMe ? Colors.white70 : AppColors.textSecondary,
                           fontSize: 15,
                         ),
+                      )
+                    else if (widget.mediaType == 'poll' && widget.mediaUrl != null && widget.mediaUrl!.isNotEmpty)
+                      PollBubble(
+                        pollId: widget.mediaUrl!,
+                        fallbackQuestion: widget.content,
+                        isMe: isMe,
                       )
                     else ...[
                       if (widget.mediaUrl != null && widget.mediaUrl!.isNotEmpty)

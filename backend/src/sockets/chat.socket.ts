@@ -17,6 +17,8 @@ function buildMessagePreview(content: string | null | undefined, mediaType: stri
             return 'Sent a video';
         case 'audio':
             return 'Sent a voice message';
+        case 'poll':
+            return `📊 Created a poll: ${(content || '').replace(/\s+/g, ' ').trim() || 'a poll'}`;
         default: {
             // One-line preview — the OS notification will further truncate/ellipsize
             // to whatever fits on screen, so we just strip newlines here.

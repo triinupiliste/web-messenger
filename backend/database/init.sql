@@ -80,6 +80,38 @@ CREATE TABLE messages (
 -- Index to sort and query chat list messages quickly
 CREATE INDEX idx_messages_chat_created ON messages(chat_id, created_at DESC);
 
+-- 6b. Polls (a poll is delivered/rendered as a regular message with
+-- media_type = 'poll' and media_url = polls.id; this table holds the
+-- actual question/options/votes referenced by that message).
+CREATE TABLE polls (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
+    creator_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    question TEXT NOT NULL, -- Stored as encrypted text payload
+    is_anonymous BOOLEAN NOT NULL DEFAULT FALSE, -- If true, individual voters aren't exposed, only tallies
+    allow_multiple_answers BOOLEAN NOT NULL DEFAULT FALSE,
+    is_closed BOOLEAN NOT NULL DEFAULT FALSE, -- Creator can close a poll to stop further voting
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE poll_options (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    poll_id UUID REFERENCES polls(id) ON DELETE CASCADE,
+    option_text TEXT NOT NULL, -- Stored as encrypted text payload
+    position INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE poll_votes (
+    poll_id UUID REFERENCES polls(id) ON DELETE CASCADE,
+    option_id UUID REFERENCES poll_options(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (poll_id, option_id, user_id)
+);
+
+CREATE INDEX idx_poll_options_poll ON poll_options(poll_id);
+CREATE INDEX idx_poll_votes_poll ON poll_votes(poll_id);
+
 -- 7. Sessions Table (Enables multiple concurrent logins per account — one row
 -- per device/browser — and selective, per-device logout. Replaces the older
 -- single-session `users.session_version` counter, which is no longer read;

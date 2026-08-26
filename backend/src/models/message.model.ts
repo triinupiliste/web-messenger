@@ -1,5 +1,5 @@
 export type MessageStatus = 'sent' | 'delivered' | 'read';
-export type MediaType = 'text' | 'image' | 'video' | 'audio';
+export type MediaType = 'text' | 'image' | 'video' | 'audio' | 'poll';
 
 // A lightweight snapshot of the message being replied to, embedded on the
 // replying message so the client can render a quote without an extra fetch.

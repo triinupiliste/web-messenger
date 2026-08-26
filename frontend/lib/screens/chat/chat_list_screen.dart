@@ -50,6 +50,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
         return 'Sent a video';
       case 'audio':
         return 'Sent a voice message';
+      case 'poll':
+        return '📊 Created a poll';
       default:
         return null;
     }

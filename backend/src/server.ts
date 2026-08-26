@@ -9,6 +9,7 @@ import userRoutes from './routes/user.routes';
 import inviteRoutes from './routes/invite.routes';
 import chatRoutes from './routes/chat.routes';
 import mediaRoutes from './routes/media.routes';
+import pollRoutes from './routes/poll.routes';
 import { MediaController } from './controllers/media.controller';
 import { errorHandler } from './middleware/error.middleware';
 import { verifyMediaToken } from './middleware/auth.middleware';
@@ -48,6 +49,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/invites', inviteRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/media', mediaRoutes);
+app.use('/api/polls', pollRoutes);
 
 app.use(errorHandler);
 

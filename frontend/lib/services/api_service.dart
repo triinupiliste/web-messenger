@@ -485,6 +485,79 @@ class ApiService {
     }
   }
 
+  // --- POLLS ---
+
+  // Creates the poll's DB rows and returns its detail (including the new pollId).
+  // The caller is still responsible for sending the actual chat message for it
+  // via the socket 'send_message' event (mediaType: 'poll', mediaUrl: pollId).
+  static Future<Map<String, dynamic>> createPoll(
+    String chatId,
+    String question,
+    List<String> options, {
+    bool isAnonymous = false,
+    bool allowMultipleAnswers = false,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('$baseUrl/polls'),
+      headers: headers,
+      body: jsonEncode({
+        'chatId': chatId,
+        'question': question,
+        'options': options,
+        'isAnonymous': isAnonymous,
+        'allowMultipleAnswers': allowMultipleAnswers,
+      }),
+    );
+    final data = jsonDecode(response.body);
+    if (response.statusCode == 201) {
+      return Map<String, dynamic>.from(data);
+    }
+    throw Exception(data['error'] ?? 'Failed to create poll');
+  }
+
+  static Future<Map<String, dynamic>> getPoll(String pollId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('$baseUrl/polls/$pollId'),
+      headers: headers,
+    );
+    final data = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(data);
+    }
+    throw Exception(data['error'] ?? 'Failed to fetch poll');
+  }
+
+  // Replaces the current user's vote(s) with the given option ids; pass an
+  // empty list to retract their vote entirely.
+  static Future<Map<String, dynamic>> votePoll(String pollId, List<String> optionIds) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('$baseUrl/polls/$pollId/vote'),
+      headers: headers,
+      body: jsonEncode({'optionIds': optionIds}),
+    );
+    final data = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(data);
+    }
+    throw Exception(data['error'] ?? 'Failed to record vote');
+  }
+
+  static Future<Map<String, dynamic>> closePoll(String pollId) async {
+    final headers = await _getHeaders();
+    final response = await http.patch(
+      Uri.parse('$baseUrl/polls/$pollId/close'),
+      headers: headers,
+    );
+    final data = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(data);
+    }
+    throw Exception(data['error'] ?? 'Failed to close poll');
+  }
+
   // --- PUSH NOTIFICATIONS ---
   static Future<void> registerFcmToken(String fcmToken) async {
     final headers = await _getHeaders();

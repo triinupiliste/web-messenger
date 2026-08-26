@@ -27,6 +27,7 @@ class SocketEvents {
   static const String groupMemberAdded = 'group_member_added';
   static const String groupMemberRemoved = 'group_member_removed';
   static const String groupRenamed = 'group_renamed';
+  static const String pollUpdated = 'poll_updated';
 
   // Emitted by the server right before disconnecting a socket whose account
   // just logged in on a different device (single-active-session enforcement).

@@ -11,6 +11,8 @@ String replyPreviewText(Map<String, dynamic> reply) {
       return 'Video';
     case 'audio':
       return 'Voice message';
+    case 'poll':
+      return '📊 Poll';
     default:
       return '';
   }

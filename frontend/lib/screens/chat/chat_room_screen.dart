@@ -21,6 +21,7 @@ import '../../widgets/chat/typing_indicator_bubble.dart';
 import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/user_avatar.dart';
 import '../home/home_screen.dart';
+import 'create_poll_screen.dart';
 import 'group_info_screen.dart';
 
 // Thin wrapper that scopes a fresh MessageProvider to this specific chat room,
@@ -476,6 +477,31 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       }
     } finally {
       if (mounted) setState(() => _isUploadingMedia = false);
+    }
+  }
+
+  Future<void> _createPoll() async {
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => const CreatePollScreen()),
+    );
+    if (result == null || !mounted) return;
+
+    try {
+      final question = result['question'] as String;
+      final created = await ApiService.createPoll(
+        widget.chatId,
+        question,
+        List<String>.from(result['options'] as List),
+        isAnonymous: result['isAnonymous'] as bool? ?? false,
+        allowMultipleAnswers: result['allowMultipleAnswers'] as bool? ?? false,
+      );
+      final pollId = created['pollId'] as String;
+      _messageProvider.sendMessage(question, mediaUrl: pollId, mediaType: 'poll');
+    } catch (e) {
+      if (mounted) {
+        SnackBarHelper.show(context, 'Failed to create poll: ${e.toString().replaceFirst('Exception: ', '')}');
+      }
     }
   }
 
@@ -948,6 +974,11 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
                               icon: Icon(Icons.photo_camera_outlined, color: AppColors.primary),
                               onPressed: () => _pickAndSendMedia(ImageSource.camera),
                               tooltip: 'Take Photo or Video',
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.poll_outlined, color: AppColors.primary),
+                              onPressed: _createPoll,
+                              tooltip: 'Create Poll',
                             ),
                             Expanded(
                               child: TextField(

@@ -25,6 +25,11 @@ class MessageProvider with ChangeNotifier {
   bool _isLoadingHistory = true;
   String? _currentUserId;
 
+  // Poll detail cache, keyed by pollId (a message's media_url when its
+  // media_type is 'poll'). Populated lazily by loadPoll() and kept fresh by
+  // the 'poll_updated' broadcast whenever anyone votes/closes it.
+  final Map<String, Map<String, dynamic>> _polls = {};
+
   Timer? _typingTimer;
   bool _isTyping = false;
 
@@ -32,6 +37,8 @@ class MessageProvider with ChangeNotifier {
   bool get isRemoteUserTyping => _isRemoteUserTyping;
   bool get isLoadingHistory => _isLoadingHistory;
   String? get currentUserId => _currentUserId;
+
+  Map<String, dynamic>? pollData(String pollId) => _polls[pollId];
 
   // Stored so dispose() can unregister exactly these callbacks; otherwise reopening
   // the same chat stacks duplicate listeners on the shared socket singleton.
@@ -42,6 +49,7 @@ class MessageProvider with ChangeNotifier {
   late final void Function(dynamic) _onMessageEdited;
   late final void Function(dynamic) _onMessageDeleted;
   late final void Function(dynamic) _onMessagesRead;
+  late final void Function(dynamic) _onPollUpdated;
 
   // Joins the chat room, registers all real-time listeners, and loads
   // persisted history. Call once, right after construction.
@@ -157,7 +165,45 @@ class MessageProvider with ChangeNotifier {
     };
     SocketService.on(SocketEvents.messagesRead, _onMessagesRead);
 
+    _onPollUpdated = (data) {
+      final poll = Map<String, dynamic>.from(data as Map);
+      final pollId = poll['id']?.toString();
+      if (pollId == null) return;
+      _polls[pollId] = poll;
+      notifyListeners();
+    };
+    SocketService.on(SocketEvents.pollUpdated, _onPollUpdated);
+
     await _loadHistory();
+  }
+
+  // Fetches a poll's live detail (question, options, tallies) if not already
+  // cached; called by the poll bubble the first time it's rendered.
+  Future<void> loadPoll(String pollId) async {
+    if (_polls.containsKey(pollId)) return;
+    try {
+      final poll = await ApiService.getPoll(pollId);
+      _polls[pollId] = poll;
+      notifyListeners();
+    } catch (_) {
+      // Left uncached — the bubble stays in its loading state and can retry.
+    }
+  }
+
+  // Replaces the current user's vote(s) on this poll; pass an empty list to
+  // retract. Updates the cache immediately from the response instead of
+  // waiting for the 'poll_updated' broadcast to come back around.
+  Future<void> votePoll(String pollId, List<String> optionIds) async {
+    final poll = await ApiService.votePoll(pollId, optionIds);
+    _polls[pollId] = poll;
+    notifyListeners();
+  }
+
+  // Creator-only: stops further voting on this poll.
+  Future<void> closePoll(String pollId) async {
+    final poll = await ApiService.closePoll(pollId);
+    _polls[pollId] = poll;
+    notifyListeners();
   }
 
   Future<void> _loadHistory() async {
@@ -307,6 +353,7 @@ class MessageProvider with ChangeNotifier {
     SocketService.off(SocketEvents.messageEdited, _onMessageEdited);
     SocketService.off(SocketEvents.messageDeleted, _onMessageDeleted);
     SocketService.off(SocketEvents.messagesRead, _onMessagesRead);
+    SocketService.off(SocketEvents.pollUpdated, _onPollUpdated);
     _typingTimer?.cancel();
     for (final timer in _pendingSendTimers.values) {
       timer.cancel();

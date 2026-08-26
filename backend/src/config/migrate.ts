@@ -22,6 +22,7 @@ export async function runMigrations(): Promise<void> {
     await ensureSessionVersionColumn();
     await ensureSessionsTable();
     await ensureGroupChatColumns();
+    await ensurePollTables();
 }
 
 // Encrypts leftover plaintext emails from before email encryption existed.
@@ -92,4 +93,37 @@ async function ensureGroupChatColumns(): Promise<void> {
 
     await pool.query('ALTER TABLE invites ADD COLUMN IF NOT EXISTS chat_id UUID REFERENCES chats(id) ON DELETE CASCADE');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_invites_chat_id ON invites(chat_id) WHERE chat_id IS NOT NULL');
+}
+
+// Adds polls/poll_options/poll_votes for DBs created before they existed.
+// No-op for new installs — init.sql already creates these tables.
+async function ensurePollTables(): Promise<void> {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS polls (
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
+            creator_id UUID REFERENCES users(id) ON DELETE SET NULL,
+            question TEXT NOT NULL,
+            is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+            allow_multiple_answers BOOLEAN NOT NULL DEFAULT FALSE,
+            is_closed BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS poll_options (
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            poll_id UUID REFERENCES polls(id) ON DELETE CASCADE,
+            option_text TEXT NOT NULL,
+            position INT NOT NULL DEFAULT 0
+        )`);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS poll_votes (
+            poll_id UUID REFERENCES polls(id) ON DELETE CASCADE,
+            option_id UUID REFERENCES poll_options(id) ON DELETE CASCADE,
+            user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (poll_id, option_id, user_id)
+        )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_poll_options_poll ON poll_options(poll_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_poll_votes_poll ON poll_votes(poll_id)');
 }
