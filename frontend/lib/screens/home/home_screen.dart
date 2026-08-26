@@ -4,6 +4,7 @@ import '../../providers/chat_provider.dart';
 import '../../providers/invite_provider.dart';
 import '../../theme/app_colors.dart';
 import '../chat/chat_list_screen.dart';
+import '../chat/chat_room_screen.dart';
 import '../invites/invites_screen.dart';
 import '../search/search_screen.dart';
 import '../profile/profile_screen.dart';
@@ -32,6 +33,29 @@ class HomeScreenState extends State<HomeScreen> {
 
   int _currentIndex = 0;
   final _profileKey = GlobalKey<ProfileScreenState>();
+
+  // Wide-screen split-pane (Chats tab only): which chat is shown in the
+  // detail pane alongside the chat list. Null means nothing selected yet
+  // (shows a placeholder). Lives here (not in ChatListScreen) so it survives
+  // switching to another tab and back.
+  String? _selectedChatId;
+  String _selectedContactId = '';
+  String _selectedContactName = '';
+  bool _selectedIsGroup = false;
+
+  void _selectChat(String chatId, String contactId, String contactName, bool isGroup) {
+    setState(() {
+      _selectedChatId = chatId;
+      _selectedContactId = contactId;
+      _selectedContactName = contactName;
+      _selectedIsGroup = isGroup;
+    });
+  }
+
+  void _clearSelectedChat() {
+    if (_selectedChatId == null) return;
+    setState(() => _selectedChatId = null);
+  }
 
   // Switches to the Chats tab and refreshes it, mirroring what tapping the
   // Chats tab itself does. Used by ChatRoomScreen after removing a friend.
@@ -93,23 +117,80 @@ class HomeScreenState extends State<HomeScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= _wideLayoutBreakpoint;
+        final showChatsSplitPane = isWide && _currentIndex == _chatsTabIndex;
         return Scaffold(
-          body: isWide
-              ? Row(
-                  children: [
-                    _buildNavigationRail(totalUnreadMessages, unseenInvites),
-                    const VerticalDivider(width: 1, thickness: 1),
-                    Expanded(
-                      child: IndexedStack(index: _currentIndex, children: _screens),
-                    ),
-                  ],
-                )
-              : IndexedStack(index: _currentIndex, children: _screens),
+          body: Row(
+            children: [
+              if (isWide) ...[
+                _buildNavigationRail(totalUnreadMessages, unseenInvites),
+                const VerticalDivider(width: 1, thickness: 1),
+              ],
+              Expanded(
+                child: showChatsSplitPane
+                    ? _buildChatsSplitPane()
+                    : IndexedStack(index: _currentIndex, children: _screens),
+              ),
+            ],
+          ),
           bottomNavigationBar: isWide
               ? null
               : _buildBottomNavigationBar(totalUnreadMessages, unseenInvites),
         );
       },
+    );
+  }
+
+  // Wide-screen-only layout for the Chats tab: the chat list stays visible in
+  // a fixed-width left column while the selected chat opens directly in the
+  // remaining space, instead of navigating away to a full-screen route.
+  Widget _buildChatsSplitPane() {
+    return Row(
+      children: [
+        SizedBox(
+          width: 360,
+          child: ChatListScreen(
+            splitPaneMode: true,
+            selectedChatId: _selectedChatId,
+            onChatSelected: _selectChat,
+          ),
+        ),
+        const VerticalDivider(width: 1, thickness: 1),
+        Expanded(
+          child: _selectedChatId == null
+              ? _buildNoChatSelectedPlaceholder()
+              : ChatRoomScreen(
+                  // Forces a full remount (dispose + initState) when the
+                  // selection changes, since chatId/contactName aren't the
+                  // only state this screen owns (search box, group member
+                  // cache, etc.) — without this key Flutter would just patch
+                  // the existing element's widget config in place.
+                  key: ValueKey(_selectedChatId),
+                  chatId: _selectedChatId!,
+                  contactId: _selectedContactId,
+                  contactName: _selectedContactName,
+                  isGroup: _selectedIsGroup,
+                  onClose: _clearSelectedChat,
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNoChatSelectedPlaceholder() {
+    return Container(
+      color: AppColors.background,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.chat_bubble_outline_rounded, size: 64, color: AppColors.textSecondary),
+          const SizedBox(height: 12),
+          Text(
+            'Select a chat to start messaging',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 15),
+          ),
+        ],
+      ),
     );
   }
 

@@ -11,7 +11,19 @@ import '../search/search_screen.dart';
 import 'chat_room_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
-  const ChatListScreen({super.key});
+  // When set (wide-screen split-pane layout only), tapping a chat calls
+  // onChatSelected to update the detail pane in place instead of pushing a
+  // full-screen ChatRoomScreen route; selectedChatId highlights the active row.
+  final bool splitPaneMode;
+  final String? selectedChatId;
+  final void Function(String chatId, String contactId, String contactName, bool isGroup)? onChatSelected;
+
+  const ChatListScreen({
+    super.key,
+    this.splitPaneMode = false,
+    this.selectedChatId,
+    this.onChatSelected,
+  });
 
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
@@ -221,9 +233,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: (widget.splitPaneMode && widget.selectedChatId == chatId)
+                        ? AppColors.primary.withValues(alpha: 0.1)
+                        : AppColors.surface,
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: AppColors.cardBorder),
+                    border: Border.all(
+                      color: (widget.splitPaneMode && widget.selectedChatId == chatId)
+                          ? AppColors.primary
+                          : AppColors.cardBorder,
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: AppColors.softShadow,
@@ -289,6 +307,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     ),
                     onTap: () async {
                       final chatProv = context.read<ChatProvider>();
+
+                      if (widget.splitPaneMode) {
+                        widget.onChatSelected?.call(chatId, chat.contactId, contactName, chat.isGroup);
+                        return;
+                      }
 
                       await Navigator.push(
                         context,

@@ -14,18 +14,25 @@ class NotificationSettingsService {
   }
 }
 
-// Tracks which chat (if any) is currently open on screen, so a foreground
-// push notification for THAT chat can be suppressed (its messages are
-// already visible live via the socket) while other chats still notify.
+// Tracks which chat(s) are currently open on screen, so a foreground push
+// notification for one of THEM can be suppressed (its messages are already
+// visible live via the socket) while other chats still notify. A set (not a
+// single id) is needed since the wide-screen split-pane layout can keep a
+// chat's screen mounted alongside the chat list, and a chat could in theory
+// be represented by more than one mounted screen at once.
 class ActiveChatTracker {
-  static String? _activeChatId;
+  static final Set<String> _activeChatIds = {};
 
-  static void setActiveChat(String? chatId) {
-    _activeChatId = chatId;
+  static void addActiveChat(String chatId) {
+    _activeChatIds.add(chatId);
+  }
+
+  static void removeActiveChat(String chatId) {
+    _activeChatIds.remove(chatId);
   }
 
   static bool isChatActive(String chatId) {
-    return _activeChatId == chatId;
+    return _activeChatIds.contains(chatId);
   }
 }
 

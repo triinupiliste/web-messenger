@@ -8,6 +8,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../constants/socket_events.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/message_provider.dart';
+import '../../providers/message_provider_registry.dart';
 import '../../services/api_service.dart';
 import '../../services/socket_service.dart';
 import '../../services/audio_service.dart';
@@ -24,13 +25,20 @@ import '../home/home_screen.dart';
 import 'create_poll_screen.dart';
 import 'group_info_screen.dart';
 
-// Thin wrapper that scopes a fresh MessageProvider to this specific chat room,
-// created and disposed with the screen rather than registered globally.
+// Thin wrapper that hands this specific chat room a MessageProvider from the
+// shared per-chatId registry (see MessageProviderRegistry) instead of owning
+// one itself — lets the same chat's state survive being remounted (e.g. the
+// wide-screen split-pane detail view swapping between chats).
 class ChatRoomScreen extends StatelessWidget {
   final String chatId;
   final String contactId;
   final String contactName;
   final bool isGroup;
+  // Set only by the wide-screen split-pane layout (HomeScreen), which mounts
+  // this screen directly in a Row rather than pushing it as a route. When
+  // non-null, logic that would otherwise pop this screen's route instead
+  // calls this to clear the pane's selection.
+  final VoidCallback? onClose;
 
   const ChatRoomScreen({
     super.key,
@@ -38,13 +46,20 @@ class ChatRoomScreen extends StatelessWidget {
     this.contactId = '',
     required this.contactName,
     this.isGroup = false,
+    this.onClose,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => MessageProvider(chatId)..init(),
-      child: _ChatRoomView(chatId: chatId, contactId: contactId, contactName: contactName, isGroup: isGroup),
+    return ChangeNotifierProvider<MessageProvider>.value(
+      value: MessageProviderRegistry.getOrCreate(chatId),
+      child: _ChatRoomView(
+        chatId: chatId,
+        contactId: contactId,
+        contactName: contactName,
+        isGroup: isGroup,
+        onClose: onClose,
+      ),
     );
   }
 }
@@ -54,12 +69,14 @@ class _ChatRoomView extends StatefulWidget {
   final String contactId;
   final String contactName;
   final bool isGroup;
+  final VoidCallback? onClose;
 
   const _ChatRoomView({
     required this.chatId,
     required this.contactId,
     required this.contactName,
     required this.isGroup,
+    this.onClose,
   });
 
   @override
@@ -117,9 +134,9 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     _lastLoadingHistory = _messageProvider.isLoadingHistory;
     _messageProvider.addListener(_onMessagesChanged);
 
-    // Mark this chat as the one currently on screen, so a foreground push
+    // Mark this chat as one currently on screen, so a foreground push
     // notification for it can be suppressed (already visible live here).
-    ActiveChatTracker.setActiveChat(widget.chatId);
+    ActiveChatTracker.addActiveChat(widget.chatId);
 
     // Whether opened via a notification tap or directly through the app, its
     // messages are read the moment this screen is on screen — clear any
@@ -145,6 +162,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).popUntil((route) => route.isFirst);
       HomeScreen.homeKey.currentState?.switchToChatsTab();
+      widget.onClose?.call();
       SnackBarHelper.showWithMessenger(messenger, '${widget.contactName} removed you as a friend.');
     };
     SocketService.on(SocketEvents.friendRemoved, _onFriendRemoved);
@@ -160,6 +178,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).popUntil((route) => route.isFirst);
       HomeScreen.homeKey.currentState?.switchToChatsTab();
+      widget.onClose?.call();
       SnackBarHelper.showWithMessenger(messenger, 'You are no longer a member of this group.');
     };
     SocketService.on(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
@@ -633,6 +652,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       // when this chat was opened (e.g. Search or Invites).
       Navigator.popUntil(context, (route) => route.isFirst);
       HomeScreen.homeKey.currentState?.switchToChatsTab();
+      widget.onClose?.call();
     } catch (e) {
       if (!mounted) return;
       SnackBarHelper.show(context, 'Failed to remove friend: ${e.toString().replaceFirst('Exception: ', '')}');
@@ -666,6 +686,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       if (!mounted) return;
       Navigator.popUntil(context, (route) => route.isFirst);
       HomeScreen.homeKey.currentState?.switchToChatsTab();
+      widget.onClose?.call();
       context.read<ChatProvider>().fetchChats();
     } catch (e) {
       if (!mounted) return;
@@ -764,9 +785,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
 
   @override
   void dispose() {
-    if (ActiveChatTracker.isChatActive(widget.chatId)) {
-      ActiveChatTracker.setActiveChat(null);
-    }
+    ActiveChatTracker.removeActiveChat(widget.chatId);
     _recordingTimer?.cancel();
     _messageProvider.removeListener(_onMessagesChanged);
     SocketService.off(SocketEvents.errorFeedback, _onErrorFeedback);
