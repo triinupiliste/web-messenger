@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -67,6 +68,7 @@ class _MessageBubbleState extends State<MessageBubble> {
 
   double _dragExtent = 0;
   bool _dragging = false;
+  bool _isHovered = false;
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
     if (widget.onReply == null) return;
@@ -117,6 +119,103 @@ class _MessageBubbleState extends State<MessageBubble> {
                 },
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // Whether this message has any applicable Reply/Edit/Delete action at all
+  // (used to decide whether to show the hover button / long-press menu).
+  bool get _hasMessageMenu {
+    final canEditDelete = widget.isMe && !widget.isDeleted;
+    final canReply = widget.onReply != null && !widget.isDeleted;
+    final canEdit = canEditDelete && widget.mediaType == 'text' && widget.onEdit != null;
+    final canDelete = canEditDelete && widget.onDelete != null;
+    return canReply || canEdit || canDelete;
+  }
+
+  List<PopupMenuEntry<String>> _buildMenuItems() {
+    final canEditDelete = widget.isMe && !widget.isDeleted;
+    final canReply = widget.onReply != null && !widget.isDeleted;
+    final canEdit = canEditDelete && widget.mediaType == 'text' && widget.onEdit != null;
+    final canDelete = canEditDelete && widget.onDelete != null;
+    return [
+      if (canReply)
+        const PopupMenuItem(
+          value: 'reply',
+          child: ListTile(leading: Icon(Icons.reply), title: Text('Reply')),
+        ),
+      if (canEdit)
+        const PopupMenuItem(
+          value: 'edit',
+          child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Edit')),
+        ),
+      if (canDelete)
+        PopupMenuItem(
+          value: 'delete',
+          child: ListTile(
+            leading: const Icon(Icons.delete_outline, color: AppColors.error),
+            title: const Text('Delete', style: TextStyle(color: AppColors.error)),
+          ),
+        ),
+    ];
+  }
+
+  void _handleMenuSelection(String value) {
+    switch (value) {
+      case 'reply':
+        widget.onReply!();
+        break;
+      case 'edit':
+        widget.onEdit!();
+        break;
+      case 'delete':
+        widget.onDelete!();
+        break;
+    }
+  }
+
+  // Long-press fallback for touch-based web (tablets/laptops without a mouse),
+  // where hovering to reveal the menu button isn't possible.
+  void _showWebContextMenu(Offset globalPosition) {
+    final items = _buildMenuItems();
+    if (items.isEmpty) return;
+
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        globalPosition.dx,
+        globalPosition.dy,
+        overlay.size.width - globalPosition.dx,
+        overlay.size.height - globalPosition.dy,
+      ),
+      items: items,
+    ).then((value) {
+      if (value != null) _handleMenuSelection(value);
+    });
+  }
+
+  // Small "more options" button revealed on hover (mouse users on web), as a
+  // replacement for right-click — right-click also pops up the browser's own
+  // native context menu alongside ours, which looks broken/confusing.
+  // Kept deliberately small (SizedBox override) so it doesn't overlap
+  // neighboring messages when bubbles are close together vertically.
+  Widget _buildHoverMenuButton() {
+    return Material(
+      color: AppColors.surface,
+      shape: const CircleBorder(),
+      elevation: 2,
+      child: SizedBox(
+        width: 22,
+        height: 22,
+        child: PopupMenuButton<String>(
+          itemBuilder: (context) => _buildMenuItems(),
+          onSelected: _handleMenuSelection,
+          padding: EdgeInsets.zero,
+          splashRadius: 12,
+          iconSize: 14,
+          icon: Icon(Icons.keyboard_arrow_down, size: 14, color: AppColors.textSecondary),
         ),
       ),
     );
@@ -185,23 +284,25 @@ class _MessageBubbleState extends State<MessageBubble> {
         );
       case 'image':
       default:
+        // A bit taller on web, where there's more screen real estate to work with.
+        final double previewHeight = kIsWeb ? 300 : 150;
         return GestureDetector(
           onTap: () => _openFullScreen(context),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: CachedNetworkImage(
               imageUrl: ApiService.mediaUrl(widget.mediaUrl!),
-              height: 150,
+              height: previewHeight,
               width: double.infinity,
               fit: BoxFit.cover,
               fadeInDuration: const Duration(milliseconds: 200),
               placeholder: (context, url) => Shimmer.fromColors(
                 baseColor: AppColors.cardBorder,
                 highlightColor: AppColors.background,
-                child: Container(height: 150, width: double.infinity, color: Colors.white),
+                child: Container(height: previewHeight, width: double.infinity, color: Colors.white),
               ),
               errorWidget: (context, url, error) => Container(
-                height: 150,
+                height: previewHeight,
                 width: double.infinity,
                 color: Colors.black12,
                 child: const Center(
@@ -236,16 +337,23 @@ class _MessageBubbleState extends State<MessageBubble> {
             ),
           ),
         GestureDetector(
-          onHorizontalDragUpdate: _onHorizontalDragUpdate,
-          onHorizontalDragEnd: _onHorizontalDragEnd,
-          onLongPress: canShowActions ? () => _showActionsSheet(context) : null,
+          onHorizontalDragUpdate: kIsWeb ? null : _onHorizontalDragUpdate,
+          onHorizontalDragEnd: kIsWeb ? null : _onHorizontalDragEnd,
+          onLongPress: kIsWeb ? null : (canShowActions ? () => _showActionsSheet(context) : null),
+          onLongPressStart: kIsWeb ? (details) => _showWebContextMenu(details.globalPosition) : null,
           child: AnimatedContainer(
             duration: _dragging ? Duration.zero : const Duration(milliseconds: 200),
             curve: Curves.easeOut,
             transform: Matrix4.translationValues(_dragExtent, 0, 0),
             child: Align(
               alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
+              child: MouseRegion(
+                onEnter: kIsWeb ? (_) => setState(() => _isHovered = true) : null,
+                onExit: kIsWeb ? (_) => setState(() => _isHovered = false) : null,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
                 margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
@@ -376,6 +484,16 @@ class _MessageBubbleState extends State<MessageBubble> {
                         ],
                       ],
                     ),
+                  ],
+                ),
+              ),
+                    if (kIsWeb && _isHovered && _hasMessageMenu)
+                      Positioned(
+                        top: -8,
+                        left: isMe ? -6 : null,
+                        right: isMe ? null : -6,
+                        child: _buildHoverMenuButton(),
+                      ),
                   ],
                 ),
               ),
@@ -551,19 +669,20 @@ class _VideoThumbnailState extends State<_VideoThumbnail> {
 
   @override
   Widget build(BuildContext context) {
+    final double previewHeight = kIsWeb ? 220 : 150;
     return Stack(
       alignment: Alignment.center,
       children: [
         if (_thumbnail != null)
           Image.memory(
             _thumbnail!,
-            height: 150,
+            height: previewHeight,
             width: double.infinity,
             fit: BoxFit.cover,
           )
         else
           Container(
-            height: 150,
+            height: previewHeight,
             width: double.infinity,
             color: Colors.black12,
             child: _loading

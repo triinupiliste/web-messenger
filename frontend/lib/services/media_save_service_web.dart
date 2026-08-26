@@ -1,4 +1,5 @@
 import 'dart:html' as html;
+import 'package:http/http.dart' as http;
 import 'api_service.dart';
 
 /// Result of a save attempt, so the UI can show an appropriate message
@@ -15,16 +16,24 @@ class MediaSaveService {
     required String mediaType,
   }) async {
     try {
-      // The `download` attribute only forces a save (rather than navigating/
-      // opening a new tab) for same-origin URLs — true for the production
-      // deployment (web build served from the same host as the API), but not
-      // necessarily for local dev against a separately-hosted backend.
-      final anchor = html.AnchorElement(href: ApiService.mediaUrl(url))
+      // An <a download> only forces a save (rather than the browser navigating
+      // the whole tab away to the resource) for same-origin URLs — not
+      // guaranteed here, since the backend can be hosted separately from the
+      // web app (e.g. local dev, or an ngrok tunnel). Fetching the bytes and
+      // handing the anchor a blob: URL sidesteps that entirely, since blob
+      // URLs are always same-origin regardless of where the bytes came from.
+      final response = await http.get(Uri.parse(ApiService.mediaUrl(url)));
+      if (response.statusCode != 200) return MediaSaveResult.failed;
+
+      final blob = html.Blob([response.bodyBytes]);
+      final objectUrl = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: objectUrl)
         ..download = _fileNameFor(url, mediaType)
         ..style.display = 'none';
       html.document.body?.append(anchor);
       anchor.click();
       anchor.remove();
+      html.Url.revokeObjectUrl(objectUrl);
       return MediaSaveResult.saved;
     } catch (_) {
       return MediaSaveResult.failed;

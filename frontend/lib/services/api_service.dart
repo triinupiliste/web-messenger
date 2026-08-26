@@ -1,16 +1,16 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../config/server_config.dart';
 import 'storage_service.dart';
 
-// MultipartFile.fromPath() doesn't infer content-type from the extension and
+// MultipartFile.fromBytes() doesn't infer content-type from a filename and
 // defaults to application/octet-stream, which the backend's avatar upload
 // endpoint rejects based on mimetype.
-MediaType? _imageContentTypeForPath(String path) {
-  final extension = path.split('.').last.toLowerCase();
+MediaType? _imageContentTypeForFilename(String filename) {
+  final extension = filename.split('.').last.toLowerCase();
   switch (extension) {
     case 'jpg':
     case 'jpeg':
@@ -590,7 +590,12 @@ class ApiService {
 
   // Uploads a local media file (image, video, or voice note) and returns its
   // publicly reachable URL so it can be sent as a message's mediaUrl.
-  static Future<String> uploadMedia(File file) async {
+  //
+  // Takes raw bytes (rather than a dart:io File) so this works on Flutter web,
+  // where picked files only exist as blob: URLs that dart:io can't read.
+  // `filename` must keep the original extension — the backend derives both
+  // the stored file's extension and its served Content-Type from it.
+  static Future<String> uploadMedia(Uint8List bytes, {required String filename}) async {
     final token = await StorageService.getToken();
     final request = http.MultipartRequest(
       'POST',
@@ -600,7 +605,12 @@ class ApiService {
     if (token != null) {
       request.headers['Authorization'] = 'Bearer $token';
     }
-    request.files.add(await http.MultipartFile.fromPath('file', file.path));
+    request.files.add(http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: filename,
+      contentType: _imageContentTypeForFilename(filename),
+    ));
 
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
@@ -615,8 +625,10 @@ class ApiService {
   }
 
   // Uploads a profile picture. Unlike uploadMedia, the backend restricts this
-  // endpoint to JPEG/PNG and a 5MB limit.
-  static Future<String> uploadAvatar(File file) async {
+  // endpoint to JPEG/PNG and a 5MB limit. `bytes` are expected to already be
+  // JPEG-encoded (the cropper always outputs JPEG), so the content-type is
+  // fixed rather than guessed from a filename.
+  static Future<String> uploadAvatar(Uint8List bytes) async {
     final token = await StorageService.getToken();
     final request = http.MultipartRequest(
       'POST',
@@ -626,10 +638,11 @@ class ApiService {
     if (token != null) {
       request.headers['Authorization'] = 'Bearer $token';
     }
-    request.files.add(await http.MultipartFile.fromPath(
+    request.files.add(http.MultipartFile.fromBytes(
       'file',
-      file.path,
-      contentType: _imageContentTypeForPath(file.path),
+      bytes,
+      filename: 'avatar.jpg',
+      contentType: MediaType('image', 'jpeg'),
     ));
 
     final streamedResponse = await request.send();

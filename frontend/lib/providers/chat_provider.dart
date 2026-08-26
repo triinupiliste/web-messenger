@@ -20,6 +20,8 @@ class ChatProvider with ChangeNotifier {
 
   // Stored so dispose() can unregister exactly these callbacks.
   late final void Function(dynamic) _onReceiveMessage;
+  late final void Function(dynamic) _onMessageDeleted;
+  late final void Function(dynamic) _onMessageEdited;
   late final void Function(dynamic) _onFriendRemoved;
   late final void Function(dynamic) _onInviteResponded;
   late final void Function(dynamic) _onProfileUpdated;
@@ -62,6 +64,20 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  // Same as fetchChats(), but doesn't toggle isLoading — used for background
+  // refreshes (e.g. after the chat's last message gets deleted) where
+  // replacing the whole list with a spinner would be a jarring flash.
+  Future<void> _refreshChatsQuietly() async {
+    try {
+      final data = await ApiService.getChats();
+      _chats = data.map((json) => ChatModel.fromJson(json)).toList();
+      _sortChats();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error refreshing chats: $e');
+    }
+  }
+
   void _sortChats() {
     _chats.sort((a, b) {
       final timeA = a.lastMessageTime ?? DateTime(2000);
@@ -101,6 +117,7 @@ class ChatProvider with ChangeNotifier {
             contactName: existing.contactName,
             contactAvatar: existing.contactAvatar,
             memberCount: existing.memberCount,
+            lastMessageId: data['id']?.toString(),
             lastMessage: data['content'],
             lastMessageType: data['media_type'] ?? data['mediaType'],
             lastMessageTime: data['created_at'] != null 
@@ -123,6 +140,54 @@ class ChatProvider with ChangeNotifier {
         }
       };
       SocketService.on(SocketEvents.receiveMessage, _onReceiveMessage);
+
+      // The chat list preview only shows non-deleted messages (mirroring the
+      // backend query), so if the message that was just deleted is the one
+      // currently shown as this chat's preview, refetch to reveal whatever
+      // the new most-recent (non-deleted) message actually is — the client
+      // doesn't have that older message's content cached locally.
+      _onMessageDeleted = (data) {
+        final chatId = (data['chat_id'] ?? data['chatId'])?.toString();
+        final messageId = data['id']?.toString();
+        if (chatId == null) return;
+        final index = _chats.indexWhere((c) => c.chatId == chatId);
+        if (index == -1) return;
+        if (_chats[index].lastMessageId != null && _chats[index].lastMessageId == messageId) {
+          _refreshChatsQuietly();
+        }
+      };
+      SocketService.on(SocketEvents.messageDeleted, _onMessageDeleted);
+
+      // Same idea as _onMessageDeleted, but simpler: an edit's payload already
+      // carries the new content, so no refetch is needed — just patch the
+      // preview text in place when the edited message is the one shown.
+      _onMessageEdited = (data) {
+        final chatId = (data['chat_id'] ?? data['chatId'])?.toString();
+        final messageId = data['id']?.toString();
+        if (chatId == null) return;
+        final index = _chats.indexWhere((c) => c.chatId == chatId);
+        if (index == -1) return;
+        final existing = _chats[index];
+        if (existing.lastMessageId == null || existing.lastMessageId != messageId) return;
+        _chats[index] = ChatModel(
+          chatId: existing.chatId,
+          isGroup: existing.isGroup,
+          contactId: existing.contactId,
+          contactName: existing.contactName,
+          contactAvatar: existing.contactAvatar,
+          memberCount: existing.memberCount,
+          lastMessageId: existing.lastMessageId,
+          lastMessage: data['content'] ?? existing.lastMessage,
+          lastMessageType: existing.lastMessageType,
+          lastMessageTime: existing.lastMessageTime,
+          lastMessageSenderId: existing.lastMessageSenderId,
+          unreadCount: existing.unreadCount,
+          isArchived: existing.isArchived,
+          isMuted: existing.isMuted,
+        );
+        notifyListeners();
+      };
+      SocketService.on(SocketEvents.messageEdited, _onMessageEdited);
 
       // The other participant removed us as a friend; drop the chat live.
       _onFriendRemoved = (data) {
@@ -157,6 +222,7 @@ class ChatProvider with ChangeNotifier {
           contactName: data['username']?.toString() ?? existing.contactName,
           contactAvatar: data['avatar_url']?.toString() ?? existing.contactAvatar,
           memberCount: existing.memberCount,
+          lastMessageId: existing.lastMessageId,
           lastMessage: existing.lastMessage,
           lastMessageType: existing.lastMessageType,
           lastMessageTime: existing.lastMessageTime,
@@ -194,6 +260,7 @@ class ChatProvider with ChangeNotifier {
           contactName: data['name']?.toString() ?? existing.contactName,
           contactAvatar: existing.contactAvatar,
           memberCount: existing.memberCount,
+          lastMessageId: existing.lastMessageId,
           lastMessage: existing.lastMessage,
           lastMessageType: existing.lastMessageType,
           lastMessageTime: existing.lastMessageTime,
@@ -306,6 +373,8 @@ class ChatProvider with ChangeNotifier {
   void dispose() {
     if (_socketListenerAttached) {
       SocketService.off(SocketEvents.receiveMessage, _onReceiveMessage);
+      SocketService.off(SocketEvents.messageDeleted, _onMessageDeleted);
+      SocketService.off(SocketEvents.messageEdited, _onMessageEdited);
       SocketService.off(SocketEvents.friendRemoved, _onFriendRemoved);
       SocketService.off(SocketEvents.inviteResponded, _onInviteResponded);
       SocketService.off(SocketEvents.profileUpdated, _onProfileUpdated);

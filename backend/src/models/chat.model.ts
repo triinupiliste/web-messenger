@@ -35,6 +35,7 @@ export interface ChatListItem {
     member_count?: number | null; // Only set for group chats
     is_archived: boolean;
     is_muted: boolean;
+    last_message_id?: string | null;
     last_message_content?: string | null; // Decrypted content preview
     last_message_type?: string | null;
     last_message_status?: string | null;

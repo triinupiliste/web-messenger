@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
@@ -21,7 +21,7 @@ class ProfileScreenState extends State<ProfileScreen> {
   final _emailController = TextEditingController();
   final _aboutMeController = TextEditingController();
   String? _avatarUrl;
-  File? _selectedAvatarFile;
+  Uint8List? _selectedAvatarBytes;
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isEditing = false;
@@ -61,7 +61,7 @@ class ProfileScreenState extends State<ProfileScreen> {
   void _enterEditMode() {
     setState(() {
       _isEditing = true;
-      _selectedAvatarFile = null;
+      _selectedAvatarBytes = null;
       _usernameAtEditStart = _usernameController.text;
       _emailAtEditStart = _emailController.text;
       _aboutMeAtEditStart = _aboutMeController.text;
@@ -69,7 +69,7 @@ class ProfileScreenState extends State<ProfileScreen> {
   }
 
   bool get _hasUnsavedChanges =>
-      _selectedAvatarFile != null ||
+      _selectedAvatarBytes != null ||
       _usernameController.text != _usernameAtEditStart ||
       _emailController.text != _emailAtEditStart ||
       _aboutMeController.text != _aboutMeAtEditStart;
@@ -115,7 +115,7 @@ class ProfileScreenState extends State<ProfileScreen> {
 
     if (choice == 'discard') {
       setState(() {
-        _selectedAvatarFile = null;
+        _selectedAvatarBytes = null;
         _usernameController.text = _usernameAtEditStart;
         _emailController.text = _emailAtEditStart;
         _aboutMeController.text = _aboutMeAtEditStart;
@@ -131,8 +131,8 @@ class ProfileScreenState extends State<ProfileScreen> {
     setState(() => _isSaving = true);
     try {
       String? avatarUrlToSave = _avatarUrl;
-      if (_selectedAvatarFile != null) {
-        avatarUrlToSave = await ApiService.uploadAvatar(_selectedAvatarFile!);
+      if (_selectedAvatarBytes != null) {
+        avatarUrlToSave = await ApiService.uploadAvatar(_selectedAvatarBytes!);
       }
 
       final updated = await ApiService.updateProfile(
@@ -148,7 +148,7 @@ class ProfileScreenState extends State<ProfileScreen> {
         _emailController.text = updated['email'] ?? _emailController.text;
         _avatarUrl = updated['avatar_url'] ?? avatarUrlToSave;
         _aboutMeController.text = updated['about_me'] ?? _aboutMeController.text;
-        _selectedAvatarFile = null;
+        _selectedAvatarBytes = null;
         _isEditing = false;
       });
       SnackBarHelper.show(context, 'Profile updated successfully!');
@@ -216,11 +216,11 @@ class ProfileScreenState extends State<ProfileScreen> {
             if (_isEditing)
               AvatarPicker(
                 currentImageUrl: _avatarUrl,
-                selectedFile: _selectedAvatarFile,
+                selectedImageBytes: _selectedAvatarBytes,
                 displayName: _usernameController.text,
-                onImageSelected: (file) {
+                onImageSelected: (bytes) {
                   setState(() {
-                    _selectedAvatarFile = file;
+                    _selectedAvatarBytes = bytes;
                   });
                 },
               )

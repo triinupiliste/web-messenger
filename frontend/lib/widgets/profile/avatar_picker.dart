@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -8,14 +8,14 @@ import '../common/user_avatar.dart';
 
 class AvatarPicker extends StatelessWidget {
   final String? currentImageUrl;
-  final File? selectedFile;
+  final Uint8List? selectedImageBytes;
   final String displayName;
-  final Function(File) onImageSelected;
+  final Function(Uint8List) onImageSelected;
 
   const AvatarPicker({
     super.key,
     this.currentImageUrl,
-    this.selectedFile,
+    this.selectedImageBytes,
     required this.displayName,
     required this.onImageSelected,
   });
@@ -25,6 +25,8 @@ class AvatarPicker extends StatelessWidget {
     final pickedFile = await picker.pickImage(source: source, imageQuality: 90);
 
     if (pickedFile == null) return;
+
+    if (!context.mounted) return;
 
     final croppedFile = await ImageCropper().cropImage(
       sourcePath: pickedFile.path,
@@ -37,33 +39,33 @@ class AvatarPicker extends StatelessWidget {
           initAspectRatio: CropAspectRatioPreset.square,
           lockAspectRatio: true,
         ),
-        IOSUiSettings(
-          title: 'Crop Profile Picture',
+        // Without this, image_cropper's web plugin has no crop UI to show at
+        // all: cropImage() silently resolves to null on web, which is why
+        // picking a photo on the web build previously did nothing past the
+        // file picker (no crop dialog, and no image ever got applied).
+        WebUiSettings(
+          context: context,
+          presentStyle: WebPresentStyle.dialog,
+          size: const CropperSize(width: 400, height: 400),
         ),
       ],
     );
 
     if (croppedFile == null) return;
 
-    final file = File(croppedFile.path);
-
-    final extension = file.path.split('.').last.toLowerCase();
-    if (extension != 'jpg' && extension != 'jpeg' && extension != 'png') {
-      if (context.mounted) {
-        SnackBarHelper.show(context, 'Only JPEG and PNG images are supported.');
-      }
-      return;
-    }
+    // readAsBytes() works cross-platform (unlike dart:io File, which can't
+    // read the blob: URLs that image_picker/image_cropper hand back on web).
+    final bytes = await croppedFile.readAsBytes();
 
     const maxBytes = 5 * 1024 * 1024;
-    if (await file.length() > maxBytes) {
+    if (bytes.length > maxBytes) {
       if (context.mounted) {
         SnackBarHelper.show(context, 'Profile pictures must be 5MB or smaller.');
       }
       return;
     }
 
-    onImageSelected(file);
+    onImageSelected(bytes);
   }
 
   void _showPickerOptions(BuildContext context) {
@@ -98,11 +100,11 @@ class AvatarPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Widget avatar = selectedFile != null
+    final Widget avatar = selectedImageBytes != null
         ? CircleAvatar(
             radius: 50,
             backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-            backgroundImage: FileImage(selectedFile!),
+            backgroundImage: MemoryImage(selectedImageBytes!),
           )
         : UserAvatar(
             avatarUrl: currentImageUrl,

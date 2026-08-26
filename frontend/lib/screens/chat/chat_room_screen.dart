@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -442,6 +445,20 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     _messageProvider.retryMessage(tempId);
   }
 
+  // Enter sends the message on web (matching desktop chat app conventions);
+  // Shift+Enter inserts a newline instead. Mobile is untouched — the
+  // on-screen keyboard's own return key still just adds a newline there.
+  KeyEventResult _handleMessageFieldKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
+        event.logicalKey == LogicalKeyboardKey.numpadEnter;
+    if (!isEnter || HardwareKeyboard.instance.isShiftPressed) {
+      return KeyEventResult.ignored;
+    }
+    _sendMessage();
+    return KeyEventResult.handled;
+  }
+
   Future<void> _editMessage(String messageId, String currentContent) async {
     final controller = TextEditingController(text: currentContent);
     final newContent = await showDialog<String>(
@@ -510,7 +527,10 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
 
     if (source == ImageSource.gallery) {
       // Open the full gallery and let the user pick either a photo or a video directly.
-      pickedFile = await picker.pickMedia();
+      // Downscale/compress photos on the way in (videos are left untouched here —
+      // they're already compressed server-side) — uploading a full-resolution phone
+      // camera photo as-is is what was making "send a photo" feel slow.
+      pickedFile = await picker.pickMedia(maxWidth: 1920, imageQuality: 85);
       mediaKind = pickedFile != null ? _guessMediaType(pickedFile) : 'image';
     } else {
       final choice = await showModalBottomSheet<String>(
@@ -537,7 +557,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       mediaKind = choice;
 
       if (choice == 'image') {
-        pickedFile = await picker.pickImage(source: source);
+        pickedFile = await picker.pickImage(source: source, maxWidth: 1920, imageQuality: 85);
       } else {
         // Actual compression happens server-side via ffmpeg (video_compress plugin
         // proved unreliable); cap recording length as a sanity bound on upload size.
@@ -551,8 +571,10 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     if (pickedFile == null) return;
 
     try {
-      final file = File(pickedFile.path);
-      final fileSizeInMB = await file.length() / (1024 * 1024);
+      // readAsBytes() works cross-platform (unlike dart:io File, which can't
+      // read the blob: URLs that image_picker hands back on web).
+      final bytes = await pickedFile.readAsBytes();
+      final fileSizeInMB = bytes.length / (1024 * 1024);
 
       // Videos are compressed server-side after upload (server enforces the real
       // 20MB-after-compression limit); non-video media isn't compressed, so 20MB
@@ -567,7 +589,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
         return;
       }
 
-      await _uploadAndSendMedia(file, mediaKind);
+      await _uploadAndSendMedia(bytes, pickedFile.name, mediaKind);
     } catch (e) {
       if (mounted) {
         SnackBarHelper.show(context, 'Failed to prepare $mediaKind: ${e.toString().replaceFirst('Exception: ', '')}');
@@ -577,14 +599,14 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
 
   String _guessMediaType(XFile file) {
     const videoExtensions = {'mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', '3gp'};
-    final ext = file.path.split('.').last.toLowerCase();
+    final ext = file.name.split('.').last.toLowerCase();
     return videoExtensions.contains(ext) ? 'video' : 'image';
   }
 
-  Future<void> _uploadAndSendMedia(File file, String mediaType) async {
+  Future<void> _uploadAndSendMedia(Uint8List bytes, String filename, String mediaType) async {
     setState(() => _isUploadingMedia = true);
     try {
-      final url = await ApiService.uploadMedia(file);
+      final url = await ApiService.uploadMedia(bytes, filename: filename);
       _sendMessage(mediaUrl: url, mediaType: mediaType);
     } catch (e) {
       if (mounted) {
@@ -772,7 +794,10 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       final path = await _audioService.stopRecording();
       setState(() => _isRecording = false);
       if (path != null) {
-        await _uploadAndSendMedia(File(path), 'audio');
+        // Voice recording (via path_provider + the `record` package) only
+        // produces a real filesystem path on mobile, so dart:io.File is fine here.
+        final bytes = await File(path).readAsBytes();
+        await _uploadAndSendMedia(bytes, path.split('/').last, 'audio');
       }
     }
   }
@@ -1142,28 +1167,35 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
                               onPressed: () => _pickAndSendMedia(ImageSource.gallery),
                               tooltip: 'Send from Gallery',
                             ),
-                            IconButton(
-                              icon: Icon(Icons.photo_camera_outlined, color: AppColors.primary),
-                              onPressed: () => _pickAndSendMedia(ImageSource.camera),
-                              tooltip: 'Take Photo or Video',
-                            ),
+                            // No camera capture UI on web (browsers don't offer a
+                            // usable native camera flow here) \u2014 gallery picking
+                            // already supports sending both photos and videos.
+                            if (!kIsWeb)
+                              IconButton(
+                                icon: Icon(Icons.photo_camera_outlined, color: AppColors.primary),
+                                onPressed: () => _pickAndSendMedia(ImageSource.camera),
+                                tooltip: 'Take Photo or Video',
+                              ),
                             IconButton(
                               icon: Icon(Icons.poll_outlined, color: AppColors.primary),
                               onPressed: _createPoll,
                               tooltip: 'Create Poll',
                             ),
                             Expanded(
-                              child: TextField(
-                                controller: _messageController,
-                                onChanged: _handleTyping,
-                                minLines: 1,
-                                maxLines: 5,
-                                decoration: const InputDecoration(
-                                  hintText: 'Type a message...',
-                                  border: InputBorder.none,
-                                  filled: false,
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.symmetric(vertical: 12),
+                              child: Focus(
+                                onKeyEvent: kIsWeb ? _handleMessageFieldKeyEvent : null,
+                                child: TextField(
+                                  controller: _messageController,
+                                  onChanged: _handleTyping,
+                                  minLines: 1,
+                                  maxLines: 5,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Type a message...',
+                                    border: InputBorder.none,
+                                    filled: false,
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+                                  ),
                                 ),
                               ),
                             ),

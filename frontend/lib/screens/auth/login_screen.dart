@@ -20,6 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _isResendingVerification = false;
+  bool _obscurePassword = true;
   String? _errorMessage;
 
   @override
@@ -201,6 +202,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: const InputDecoration(
                               labelText: 'Email', prefixIcon: Icon(Icons.email)),
                           keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
                           validator: (value) =>
                               value!.isEmpty ? 'Please enter your email' : null,
                         ),
@@ -208,9 +210,21 @@ class _LoginScreenState extends State<LoginScreen> {
                         TextFormField(
                           controller: _passwordController,
                           onChanged: (_) => _clearLoginFeedback(),
-                          decoration: const InputDecoration(
-                              labelText: 'Password', prefixIcon: Icon(Icons.lock)),
-                          obscureText: true,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                              ),
+                              tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                            ),
+                          ),
+                          obscureText: _obscurePassword,
+                          textInputAction: TextInputAction.done,
+                          // Lets pressing Enter/Return submit the form, same as tapping Log In.
+                          onFieldSubmitted: (_) => _login(),
                           validator: (value) =>
                               value!.isEmpty ? 'Please enter your password' : null,
                         ),

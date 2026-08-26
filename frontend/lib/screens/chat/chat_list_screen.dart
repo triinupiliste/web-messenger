@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
@@ -32,6 +33,9 @@ class ChatListScreen extends StatefulWidget {
 class _ChatListScreenState extends State<ChatListScreen> {
   bool _showArchived = false;
   String? _currentUserId;
+  // Web-only: chat rows currently hovered, to reveal their menu button (see
+  // _buildChatMenuButton). Mobile uses swipe gestures instead, so this stays empty there.
+  final Set<String> _hoveredChatIds = {};
 
   @override
   void initState() {
@@ -67,6 +71,87 @@ class _ChatListScreenState extends State<ChatListScreen> {
       default:
         return null;
     }
+  }
+
+  // Shared by both the mobile swipe-to-archive gesture and the web menu button.
+  void _archiveOrUnarchiveChat(ChatProvider chatProvider, String chatId, bool isArchived) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    chatProvider.toggleArchiveChat(chatId);
+    final controller = SnackBarHelper.showWithMessenger(
+      messenger,
+      isArchived ? 'Chat unarchived' : 'Chat archived',
+      duration: const Duration(seconds: 5),
+      action: SnackBarAction(
+        label: 'Undo',
+        onPressed: () => chatProvider.toggleArchiveChat(chatId),
+      ),
+    );
+    Future.delayed(const Duration(seconds: 5), controller.close);
+  }
+
+  // Shared by both the mobile swipe-to-delete gesture and the web menu button.
+  void _deleteChatWithUndo(ChatProvider chatProvider, String chatId) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    chatProvider.deleteChat(chatId);
+    final controller = SnackBarHelper.showWithMessenger(
+      messenger,
+      'Chat deleted',
+      duration: const Duration(seconds: 5),
+      action: SnackBarAction(
+        label: 'Undo',
+        onPressed: () => chatProvider.undoDeleteChat(),
+      ),
+    );
+    Future.delayed(const Duration(seconds: 5), controller.close);
+  }
+
+  // Web has no swipe gestures, so a small hover-revealed button offers the
+  // same archive/delete actions instead (mirrors message_bubble.dart's web
+  // hover-menu pattern).
+  Widget _buildChatMenuButton(ChatProvider chatProvider, String chatId, bool isArchived) {
+    return Material(
+      color: AppColors.surface,
+      shape: const CircleBorder(),
+      elevation: 2,
+      child: PopupMenuButton<String>(
+        icon: Icon(Icons.more_vert, size: 18, color: AppColors.textSecondary),
+        padding: EdgeInsets.zero,
+        tooltip: 'Chat options',
+        onSelected: (value) {
+          if (value == 'archive') {
+            _archiveOrUnarchiveChat(chatProvider, chatId, isArchived);
+          } else if (value == 'delete') {
+            _deleteChatWithUndo(chatProvider, chatId);
+          }
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: 'archive',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(isArchived ? Icons.unarchive : Icons.archive, size: 18, color: AppColors.textPrimary),
+                const SizedBox(width: 8),
+                Text(isArchived ? 'Unarchive' : 'Archive'),
+              ],
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'delete',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.delete, size: 18, color: Colors.red),
+                SizedBox(width: 8),
+                Text('Delete', style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _createGroup() async {
@@ -176,6 +261,130 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 previewText = isFromMe ? 'You: $body' : body;
               }
 
+              final content = Container(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: (widget.splitPaneMode && widget.selectedChatId == chatId)
+                      ? AppColors.primary.withValues(alpha: 0.1)
+                      : AppColors.surface,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: (widget.splitPaneMode && widget.selectedChatId == chatId)
+                        ? AppColors.primary
+                        : AppColors.cardBorder,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.softShadow,
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: ListTile(
+                  leading: chat.isGroup
+                      ? CircleAvatar(
+                          backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                          child: Icon(Icons.groups_rounded, color: AppColors.primary),
+                        )
+                      : UserAvatar(
+                          avatarUrl: chat.contactAvatar,
+                          displayName: contactName,
+                        ),
+                  title: Text(contactName, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  subtitle: Text(
+                    previewText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: hasUnread ? AppColors.textPrimary : AppColors.textSecondary,
+                      fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (hasUnread)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                AppColors.primary,
+                                AppColors.darken(AppColors.primary),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.primary.withValues(alpha: 0.3),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          constraints: const BoxConstraints(minWidth: 22),
+                          child: Text(
+                            chat.unreadCount > 99 ? '99+' : '${chat.unreadCount}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: AppColors.onPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                    ],
+                  ),
+                  onTap: () async {
+                    final chatProv = context.read<ChatProvider>();
+
+                    if (widget.splitPaneMode) {
+                      widget.onChatSelected?.call(chatId, chat.contactId, contactName, chat.isGroup);
+                      return;
+                    }
+
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ChatRoomScreen(
+                          chatId: chatId,
+                          contactId: chat.contactId,
+                          contactName: contactName,
+                          isGroup: chat.isGroup,
+                        ),
+                      ),
+                    );
+
+                    if (!mounted) return;
+                    chatProv.fetchChats();
+                  },
+                ),
+              );
+
+              // Web has no swipe gestures, so archive/delete are offered via a
+              // hover-revealed menu button in the row's top-right corner instead
+              // (mirroring the message bubble's web hover-menu pattern). Mobile
+              // keeps the original swipe-to-archive/swipe-to-delete behavior.
+              if (kIsWeb) {
+                final isHovered = _hoveredChatIds.contains(chatId);
+                return MouseRegion(
+                  onEnter: (_) => setState(() => _hoveredChatIds.add(chatId)),
+                  onExit: (_) => setState(() => _hoveredChatIds.remove(chatId)),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      content,
+                      if (isHovered)
+                        Positioned(
+                          top: 0,
+                          bottom: 0,
+                          right: 18,
+                          child: Center(child: _buildChatMenuButton(chatProvider, chatId, isArchived)),
+                        ),
+                    ],
+                  ),
+                );
+              }
+
               return Dismissible(
                 key: Key(chatId),
                 background: Container(
@@ -199,137 +408,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   child: Icon(Icons.delete, color: AppColors.onPrimary),
                 ),
                 confirmDismiss: (direction) async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  messenger.clearSnackBars();
-
                   if (direction == DismissDirection.startToEnd) {
-                    chatProvider.toggleArchiveChat(chatId);
-                    final controller = SnackBarHelper.showWithMessenger(
-                      messenger,
-                      isArchived ? 'Chat unarchived' : 'Chat archived',
-                      duration: const Duration(seconds: 5),
-                      action: SnackBarAction(
-                        label: 'Undo',
-                        onPressed: () => chatProvider.toggleArchiveChat(chatId),
-                      ),
-                    );
-                    Future.delayed(const Duration(seconds: 5), controller.close);
-                    return true;
+                    _archiveOrUnarchiveChat(chatProvider, chatId, isArchived);
+                  } else {
+                    _deleteChatWithUndo(chatProvider, chatId);
                   }
-
-                  chatProvider.deleteChat(chatId);
-                  final controller = SnackBarHelper.showWithMessenger(
-                    messenger,
-                    'Chat deleted',
-                    duration: const Duration(seconds: 5),
-                    action: SnackBarAction(
-                      label: 'Undo',
-                      onPressed: () => chatProvider.undoDeleteChat(),
-                    ),
-                  );
-                  Future.delayed(const Duration(seconds: 5), controller.close);
                   return true;
                 },
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: (widget.splitPaneMode && widget.selectedChatId == chatId)
-                        ? AppColors.primary.withValues(alpha: 0.1)
-                        : AppColors.surface,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: (widget.splitPaneMode && widget.selectedChatId == chatId)
-                          ? AppColors.primary
-                          : AppColors.cardBorder,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.softShadow,
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: ListTile(
-                    leading: chat.isGroup
-                        ? CircleAvatar(
-                            backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                            child: Icon(Icons.groups_rounded, color: AppColors.primary),
-                          )
-                        : UserAvatar(
-                            avatarUrl: chat.contactAvatar,
-                            displayName: contactName,
-                          ),
-                    title: Text(contactName, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                    subtitle: Text(
-                      previewText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: hasUnread ? AppColors.textPrimary : AppColors.textSecondary,
-                        fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (hasUnread)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  AppColors.primary,
-                                  AppColors.darken(AppColors.primary),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppColors.primary.withValues(alpha: 0.3),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            constraints: const BoxConstraints(minWidth: 22),
-                            child: Text(
-                              chat.unreadCount > 99 ? '99+' : '${chat.unreadCount}',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: AppColors.onPrimary, fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        const SizedBox(width: 4),
-                        Icon(Icons.chevron_right, size: 18, color: AppColors.textSecondary),
-                      ],
-                    ),
-                    onTap: () async {
-                      final chatProv = context.read<ChatProvider>();
-
-                      if (widget.splitPaneMode) {
-                        widget.onChatSelected?.call(chatId, chat.contactId, contactName, chat.isGroup);
-                        return;
-                      }
-
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ChatRoomScreen(
-                            chatId: chatId,
-                            contactId: chat.contactId,
-                            contactName: contactName,
-                            isGroup: chat.isGroup,
-                          ),
-                        ),
-                      );
-
-                      if (!mounted) return;
-                      chatProv.fetchChats();
-                    },
-                  ),
-                ),
+                child: content,
               );
             },
           );

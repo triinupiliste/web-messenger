@@ -152,6 +152,7 @@ export class ChatRepository {
                 CASE WHEN c.is_group THEN c.name ELSE other.username END AS contact_username,
                 CASE WHEN c.is_group THEN NULL ELSE other.avatar_url END AS contact_avatar,
                 member_count.cnt AS member_count,
+                m.id AS last_message_id,
                 m.content AS last_message_content,
                 m.media_type AS last_message_type,
                 m.status AS last_message_status,
@@ -172,7 +173,7 @@ export class ChatRepository {
                 SELECT COUNT(*)::int AS cnt FROM chat_participants mcp WHERE mcp.chat_id = cp.chat_id AND c.is_group
             ) member_count ON true
             LEFT JOIN LATERAL (
-                SELECT content, media_type, status, sender_id, created_at 
+                SELECT id, content, media_type, status, sender_id, created_at 
                 FROM messages 
                 WHERE chat_id = cp.chat_id AND is_deleted = FALSE 
                 ORDER BY created_at DESC 

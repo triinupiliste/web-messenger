@@ -5,6 +5,7 @@ class ChatModel {
   final String contactName;
   final String? contactAvatar;
   final int? memberCount;
+  final String? lastMessageId;
   final String? lastMessage;
   final String? lastMessageType;
   final DateTime? lastMessageTime;
@@ -20,6 +21,7 @@ class ChatModel {
     required this.contactName,
     this.contactAvatar,
     this.memberCount,
+    this.lastMessageId,
     this.lastMessage,
     this.lastMessageType,
     this.lastMessageTime,
@@ -39,6 +41,7 @@ class ChatModel {
       memberCount: json['member_count'] is int
           ? json['member_count']
           : int.tryParse(json['member_count']?.toString() ?? ''),
+      lastMessageId: json['last_message_id']?.toString(),
       lastMessage: json['last_message_content'],
       lastMessageType: json['last_message_type'],
       lastMessageTime: json['last_message_time'] != null
