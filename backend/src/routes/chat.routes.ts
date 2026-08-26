@@ -14,6 +14,7 @@ router.patch('/:chatId/name', verifyToken, ChatController.renameGroup);
 router.get('/:chatId/members', verifyToken, ChatController.getGroupMembers);
 router.delete('/:chatId/members/:userId', verifyToken, ChatController.removeMember);
 router.get('/:chatId/messages', verifyToken, ChatController.getChatMessages);
+router.get('/:chatId/search', verifyToken, ChatController.searchMessages);
 router.patch('/:chatId/read', verifyToken, ChatController.markMessagesRead);
 
 export default router;

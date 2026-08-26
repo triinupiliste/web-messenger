@@ -121,4 +121,15 @@ export class MessageRepository {
         const result = await pool.query(query, [messageId, senderId]);
         return result.rows[0] || null;
     }
+
+    // Content is encrypted with a random IV per message (AES-256-CBC), so it can't
+    // be filtered in SQL (e.g. ILIKE) — messages are decrypted first (reusing the
+    // same chat history query/rules, including per-user cleared_at), then matched
+    // in application code. Fine at this app's scale; would need a different
+    // approach (e.g. a separate searchable index) if chat histories got huge.
+    static async searchMessages(chatId: string, userId: string, query: string): Promise<Message[]> {
+        const needle = query.toLowerCase();
+        const all = await MessageRepository.getMessagesForChat(chatId, userId);
+        return all.filter((m) => !m.is_deleted && m.content && m.content.toLowerCase().includes(needle));
+    }
 }

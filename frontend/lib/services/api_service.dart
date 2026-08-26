@@ -393,6 +393,26 @@ class ApiService {
     );
   }
 
+  // Server decrypts each message before matching (content is encrypted with a
+  // random IV per message, so it can't be filtered in SQL). Returns matches in
+  // the same chronological order as getMessages, plus the true total match
+  // count (results may be truncated server-side for very common search terms).
+  static Future<Map<String, dynamic>> searchMessages(String chatId, String query) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('$baseUrl/chats/$chatId/search?q=${Uri.encodeComponent(query)}'),
+      headers: headers,
+    );
+    final data = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      return {
+        'results': (data['results'] as List?) ?? [],
+        'total': (data['total'] as num?)?.toInt() ?? 0,
+      };
+    }
+    throw Exception(data['error'] ?? 'Failed to search messages');
+  }
+
   static Future<void> setChatMuted(String chatId, bool isMuted) async {
     final headers = await _getHeaders();
     await http.patch(

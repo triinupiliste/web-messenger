@@ -28,6 +28,9 @@ class MessageBubble extends StatefulWidget {
   // Sender's display name, shown above the bubble content. Only meaningful (and
   // only passed by the caller) for group chat messages from someone else.
   final String? senderName;
+  // True for the currently-selected in-chat search match (see ChatRoomScreen's
+  // search bar) — renders a highlight border so the user can spot it at a glance.
+  final bool isHighlighted;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onRetry;
@@ -47,6 +50,7 @@ class MessageBubble extends StatefulWidget {
     this.replyTo,
     this.replyToSenderName,
     this.senderName,
+    this.isHighlighted = false,
     this.onEdit,
     this.onDelete,
     this.onRetry,
@@ -257,7 +261,9 @@ class _MessageBubbleState extends State<MessageBubble> {
                         )
                       : null,
                   color: isMe ? null : AppColors.surface,
-                  border: isMe ? null : Border.all(color: AppColors.cardBorder),
+                  border: widget.isHighlighted
+                      ? Border.all(color: Colors.orangeAccent, width: 2.5)
+                      : (isMe ? null : Border.all(color: AppColors.cardBorder)),
                   borderRadius: BorderRadius.only(
                     topLeft: const Radius.circular(18),
                     topRight: const Radius.circular(18),

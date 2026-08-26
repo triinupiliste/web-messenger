@@ -106,6 +106,40 @@ export class ChatController {
         }
     }
 
+    // Capped so a very common search term in a huge chat doesn't return an
+    // unbounded payload; `total` tells the client if results were truncated.
+    private static readonly MAX_SEARCH_RESULTS = 200;
+
+    static async searchMessages(req: Request, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.userId;
+            const chatId = req.params.chatId as string;
+            const query = (req.query.q ?? '').toString().trim();
+
+            if (!query) {
+                res.status(400).json({ error: 'A search query is required.' });
+                return;
+            }
+            if (!await ChatRepository.isUserInChat(chatId, userId)) {
+                res.status(403).json({ error: 'You are not a participant in this chat.' });
+                return;
+            }
+
+            const matches = await MessageRepository.searchMessages(chatId, userId, query);
+            const results = matches.slice(0, ChatController.MAX_SEARCH_RESULTS).map((m) => ({
+                id: m.id,
+                content: m.content,
+                sender_id: m.sender_id,
+                media_type: m.media_type,
+                created_at: m.created_at,
+            }));
+
+            res.status(200).json({ results, total: matches.length });
+        } catch (error) {
+            res.status(500).json({ error: 'Failed to search messages.' });
+        }
+    }
+
     // --- Group chats ---
 
     // Creates a new group chat with just the requester as its owner; other

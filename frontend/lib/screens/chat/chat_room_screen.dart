@@ -97,6 +97,17 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
   // Overrides widget.contactName once a 'group_renamed' event arrives for this chat.
   String? _liveGroupName;
 
+  // In-chat message search (Phase 5). Server decrypts-then-filters per chat, since
+  // content is encrypted non-deterministically and can't be matched in SQL.
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
+  bool _isSearchLoading = false;
+  List<dynamic> _searchResults = [];
+  int _searchTotal = 0;
+  int _currentMatchIndex = -1;
+  String? _highlightedMessageId;
+
   @override
   void initState() {
     super.initState();
@@ -288,6 +299,91 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
 
   void _handleTyping(String text) {
     _messageProvider.handleTyping();
+  }
+
+  void _startSearch() {
+    setState(() => _isSearching = true);
+  }
+
+  void _stopSearch() {
+    _searchDebounce?.cancel();
+    setState(() {
+      _isSearching = false;
+      _searchController.clear();
+      _searchResults = [];
+      _searchTotal = 0;
+      _currentMatchIndex = -1;
+      _highlightedMessageId = null;
+    });
+  }
+
+  void _onSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    // Also triggers a rebuild so the AppBar's "n/total" placeholder appears/
+    // disappears immediately as the field goes empty/non-empty, rather than
+    // waiting for the debounced search to complete.
+    setState(() {});
+    if (query.trim().isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _searchTotal = 0;
+        _currentMatchIndex = -1;
+        _highlightedMessageId = null;
+      });
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () => _performSearch(query.trim()));
+  }
+
+  Future<void> _performSearch(String query) async {
+    setState(() => _isSearchLoading = true);
+    try {
+      final data = await ApiService.searchMessages(widget.chatId, query);
+      if (!mounted) return;
+      setState(() {
+        _searchResults = data['results'] as List;
+        _searchTotal = data['total'] as int;
+        _currentMatchIndex = _searchResults.isEmpty ? -1 : 0;
+      });
+      if (_searchResults.isNotEmpty) _jumpToMatch(0);
+    } catch (e) {
+      if (mounted) {
+        SnackBarHelper.show(context, 'Search failed: ${e.toString().replaceFirst('Exception: ', '')}');
+      }
+    } finally {
+      if (mounted) setState(() => _isSearchLoading = false);
+    }
+  }
+
+  // Scrolls to the match's message bubble (already loaded — chat history isn't
+  // paginated) and marks it as the highlighted 'current' match.
+  void _jumpToMatch(int index) {
+    if (index < 0 || index >= _searchResults.length) return;
+    final matchId = _searchResults[index]['id'].toString();
+    setState(() {
+      _currentMatchIndex = index;
+      _highlightedMessageId = matchId;
+    });
+    final messages = _messageProvider.messages;
+    final idx = messages.indexWhere((m) => m['id'] == matchId);
+    if (idx != -1 && _itemScrollController.isAttached) {
+      _itemScrollController.scrollTo(
+        index: idx,
+        alignment: 0.3,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  void _nextMatch() {
+    if (_searchResults.isEmpty) return;
+    _jumpToMatch((_currentMatchIndex + 1) % _searchResults.length);
+  }
+
+  void _prevMatch() {
+    if (_searchResults.isEmpty) return;
+    _jumpToMatch((_currentMatchIndex - 1 + _searchResults.length) % _searchResults.length);
   }
 
   // Sets a message as the target of the next send, shown as a preview above
@@ -679,6 +775,8 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     SocketService.off(SocketEvents.groupRenamed, _onGroupRenamed);
     _itemPositionsListener.itemPositions.removeListener(_handleItemPositionsChanged);
     _messageController.dispose();
+    _searchController.dispose();
+    _searchDebounce?.cancel();
     _audioService.dispose();
     super.dispose();
   }
@@ -693,66 +791,120 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     final isMuted = NotificationSettingsService.isChatMuted(widget.chatId);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_liveGroupName ?? widget.contactName, style: const TextStyle(fontSize: 16)),
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onSelected: (value) {
-              if (value == 'mute') {
-                NotificationSettingsService.toggleMuteChat(widget.chatId);
-                final nowMuted = NotificationSettingsService.isChatMuted(widget.chatId);
-                ApiService.setChatMuted(widget.chatId, nowMuted);
-                setState(() {});
-                SnackBarHelper.show(context, nowMuted ? 'Chat muted' : 'Chat unmuted');
-              } else if (value == 'view_profile') {
-                _viewProfile();
-              } else if (value == 'remove_friend') {
-                _confirmRemoveFriend();
-              } else if (value == 'group_info') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => GroupInfoScreen(
-                      chatId: widget.chatId,
-                      groupName: _liveGroupName ?? widget.contactName,
+      appBar: _isSearching
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: _stopSearch,
+              ),
+              title: TextField(
+                controller: _searchController,
+                autofocus: true,
+                onChanged: _onSearchChanged,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: 'Search messages...',
+                  hintStyle: TextStyle(color: Colors.white70),
+                  border: InputBorder.none,
+                ),
+              ),
+              actions: [
+                if (_isSearchLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    ),
+                  )
+                else if (_searchController.text.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Center(
+                      child: Text(
+                        _searchResults.isEmpty ? '0/0' : '${_currentMatchIndex + 1}/$_searchTotal',
+                        style: const TextStyle(color: Colors.white70, fontSize: 13),
+                      ),
                     ),
                   ),
-                ).then((_) {
-                  if (widget.isGroup) _loadGroupMembers();
-                });
-              } else if (value == 'leave_group') {
-                _confirmLeaveGroup();
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'mute',
-                child: Text(isMuted ? 'Unmute Notifications' : 'Mute Notifications'),
-              ),
-              if (widget.isGroup) ...[
-                const PopupMenuItem(
-                  value: 'group_info',
-                  child: Text('Group Info'),
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_up),
+                  onPressed: _searchResults.isEmpty ? null : _prevMatch,
+                  tooltip: 'Previous match',
                 ),
-                const PopupMenuItem(
-                  value: 'leave_group',
-                  child: Text('Leave Group', style: TextStyle(color: Colors.red)),
-                ),
-              ] else ...[
-                const PopupMenuItem(
-                  value: 'view_profile',
-                  child: Text('View Profile'),
-                ),
-                const PopupMenuItem(
-                  value: 'remove_friend',
-                  child: Text('Remove Friend', style: TextStyle(color: Colors.red)),
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_down),
+                  onPressed: _searchResults.isEmpty ? null : _nextMatch,
+                  tooltip: 'Next match',
                 ),
               ],
-            ],
-          ),
-        ],
-      ),
+            )
+          : AppBar(
+              title: Text(_liveGroupName ?? widget.contactName, style: const TextStyle(fontSize: 16)),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.search, color: Colors.white),
+                  onPressed: _startSearch,
+                  tooltip: 'Search messages',
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: Colors.white),
+                  onSelected: (value) {
+                    if (value == 'mute') {
+                      NotificationSettingsService.toggleMuteChat(widget.chatId);
+                      final nowMuted = NotificationSettingsService.isChatMuted(widget.chatId);
+                      ApiService.setChatMuted(widget.chatId, nowMuted);
+                      setState(() {});
+                      SnackBarHelper.show(context, nowMuted ? 'Chat muted' : 'Chat unmuted');
+                    } else if (value == 'view_profile') {
+                      _viewProfile();
+                    } else if (value == 'remove_friend') {
+                      _confirmRemoveFriend();
+                    } else if (value == 'group_info') {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => GroupInfoScreen(
+                            chatId: widget.chatId,
+                            groupName: _liveGroupName ?? widget.contactName,
+                          ),
+                        ),
+                      ).then((_) {
+                        if (widget.isGroup) _loadGroupMembers();
+                      });
+                    } else if (value == 'leave_group') {
+                      _confirmLeaveGroup();
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'mute',
+                      child: Text(isMuted ? 'Unmute Notifications' : 'Mute Notifications'),
+                    ),
+                    if (widget.isGroup) ...[
+                      const PopupMenuItem(
+                        value: 'group_info',
+                        child: Text('Group Info'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'leave_group',
+                        child: Text('Leave Group', style: TextStyle(color: Colors.red)),
+                      ),
+                    ] else ...[
+                      const PopupMenuItem(
+                        value: 'view_profile',
+                        child: Text('View Profile'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'remove_friend',
+                        child: Text('Remove Friend', style: TextStyle(color: Colors.red)),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
       body: Column(
         children: [
           Expanded(
@@ -804,6 +956,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
                                 senderName: (widget.isGroup && !isMe)
                                     ? (_memberNames[msg['sender_id']?.toString()] ?? 'Member')
                                     : null,
+                                isHighlighted: _highlightedMessageId != null && msg['id'] == _highlightedMessageId,
                                 onEdit: (isMe && !isDeleted && isConfirmed)
                                     ? () => _editMessage(msg['id'] ?? '', msg['content'] ?? '')
                                     : null,
