@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../services/api_service.dart';
@@ -56,6 +57,31 @@ class _ChatListScreenState extends State<ChatListScreen> {
       });
     } catch (_) {
       // Ignore; falls back to showing messages without the 'You:' prefix.
+    }
+  }
+
+  // Chat-list-style relative timestamp for the last message, mirroring the
+  // common convention: just the time for today, "Yesterday" for yesterday,
+  // the shortened weekday within the last week, the date without a year for
+  // anything older this year, and the date with a year for previous years.
+  String _formatLastMessageTime(DateTime? time) {
+    if (time == null) return '';
+    final local = time.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final messageDay = DateTime(local.year, local.month, local.day);
+    final daysAgo = today.difference(messageDay).inDays;
+
+    if (daysAgo <= 0) {
+      return DateFormat('HH:mm').format(local);
+    } else if (daysAgo == 1) {
+      return 'Yesterday';
+    } else if (daysAgo < 7) {
+      return DateFormat('EEE').format(local);
+    } else if (local.year == now.year) {
+      return DateFormat('d MMM').format(local);
+    } else {
+      return DateFormat('d MMM yyyy').format(local);
     }
   }
 
@@ -302,38 +328,52 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
                     ),
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (hasUnread)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                AppColors.primary,
-                                AppColors.darken(AppColors.primary),
+                  trailing: SizedBox(
+                    height: 42,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (hasUnread)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  AppColors.primary,
+                                  AppColors.darken(AppColors.primary),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.primary.withValues(alpha: 0.3),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
                               ],
                             ),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.primary.withValues(alpha: 0.3),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          constraints: const BoxConstraints(minWidth: 22),
-                          child: Text(
-                            chat.unreadCount > 99 ? '99+' : '${chat.unreadCount}',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: AppColors.onPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                            constraints: const BoxConstraints(minWidth: 22),
+                            child: Text(
+                              chat.unreadCount > 99 ? '99+' : '${chat.unreadCount}',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: AppColors.onPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          )
+                        else
+                          const SizedBox.shrink(),
+                        Text(
+                          _formatLastMessageTime(chat.lastMessageTime),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: hasUnread ? AppColors.primary : AppColors.textSecondary,
+                            fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
                           ),
                         ),
-                    ],
+                      ],
+                    ),
                   ),
                   onTap: () async {
                     final chatProv = context.read<ChatProvider>();
