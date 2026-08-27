@@ -69,6 +69,14 @@ class _MessageBubbleState extends State<MessageBubble> {
   double _dragExtent = 0;
   bool _dragging = false;
   bool _isHovered = false;
+  // True while the hover-triggered PopupMenuButton's dropdown is open. The mouse
+  // usually leaves the bubble's MouseRegion to reach the dropdown (which renders
+  // outside the bubble), which would normally flip _isHovered false and unmount
+  // the button (and its PopupMenuButton state) while its menu is still showing —
+  // silently swallowing onSelected once the framework's own menu-closing code
+  // finds the originating widget no longer mounted. Keeping the button mounted
+  // via this flag avoids that.
+  bool _menuOpen = false;
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
     if (widget.onReply == null) return;
@@ -211,7 +219,12 @@ class _MessageBubbleState extends State<MessageBubble> {
         height: 22,
         child: PopupMenuButton<String>(
           itemBuilder: (context) => _buildMenuItems(),
-          onSelected: _handleMenuSelection,
+          onOpened: () => setState(() => _menuOpen = true),
+          onSelected: (value) {
+            setState(() => _menuOpen = false);
+            _handleMenuSelection(value);
+          },
+          onCanceled: () => setState(() => _menuOpen = false),
           padding: EdgeInsets.zero,
           splashRadius: 12,
           iconSize: 14,
@@ -350,7 +363,17 @@ class _MessageBubbleState extends State<MessageBubble> {
               child: MouseRegion(
                 onEnter: kIsWeb ? (_) => setState(() => _isHovered = true) : null,
                 onExit: kIsWeb ? (_) => setState(() => _isHovered = false) : null,
-                child: Stack(
+                // The hover button below is Positioned with negative offsets so it
+                // floats above/outside the bubble. A Positioned child doesn't
+                // contribute to the Stack's layout size, so without this padding
+                // reserving that same space, the button renders entirely outside
+                // this MouseRegion's hit-test box — moving the mouse onto it
+                // immediately fires onExit (removing the button from the tree,
+                // via the `if (... && _isHovered ...)` below) before the click can
+                // ever land, making Edit/Delete/Reply unclickable.
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8, left: 6, right: 6),
+                  child: Stack(
                   clipBehavior: Clip.none,
                   children: [
                     Container(
@@ -487,7 +510,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                   ],
                 ),
               ),
-                    if (kIsWeb && _isHovered && _hasMessageMenu)
+                    if (kIsWeb && (_isHovered || _menuOpen) && _hasMessageMenu)
                       Positioned(
                         top: -8,
                         left: isMe ? -6 : null,
@@ -495,6 +518,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                         child: _buildHoverMenuButton(),
                       ),
                   ],
+                  ),
                 ),
               ),
             ),
