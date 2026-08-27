@@ -258,6 +258,17 @@ export class ChatRepository {
         await pool.query(query, [chatId]);
     }
 
+    // All participant ids in a chat — used to fan out per-user personalized
+    // realtime payloads (e.g. poll results, where each recipient needs their
+    // own "did I vote for this option" flag rather than a single shared object).
+    static async getParticipantIds(chatId: string): Promise<string[]> {
+        const result = await pool.query(
+            'SELECT user_id FROM chat_participants WHERE chat_id = $1',
+            [chatId],
+        );
+        return result.rows.map((row) => row.user_id);
+    }
+
     // Every other participant in the chat, plus their mute state and FCM token
     // — used to decide who to push a "new message" notification to.
     static async getOtherParticipantsForPush(

@@ -9,6 +9,28 @@ const MAX_QUESTION_LENGTH = 300;
 const MAX_OPTION_LENGTH = 100;
 
 export class PollController {
+    // 'voted_by_me' is computed per-requester, so a single poll object can't be
+    // broadcast as-is to a whole chat room — every recipient would see whichever
+    // option the *acting* user (voter/closer) chose as their own checked option.
+    // Instead, fetch/emit a personalized copy of the poll to each participant's
+    // own room (joined as their userId in chat.socket.ts's 'connection' handler).
+    private static async broadcastPollUpdate(
+        pollId: string,
+        chatId: string,
+        actingUserId: string,
+        actingUserPoll: unknown,
+    ): Promise<void> {
+        const io = getIO();
+        if (!io) return;
+        const participantIds = await ChatRepository.getParticipantIds(chatId);
+        await Promise.all(participantIds.map(async (participantId) => {
+            const personalizedPoll = participantId === actingUserId
+                ? actingUserPoll
+                : await PollRepository.getPollDetail(pollId, participantId);
+            io.to(participantId).emit('poll_updated', personalizedPoll);
+        }));
+    }
+
     // Creates the poll's own DB rows (question + options). The client then sends
     // the actual chat message for it via the existing 'send_message' socket event
     // (mediaType: 'poll', mediaUrl: the returned pollId) — reusing all of that
@@ -128,7 +150,7 @@ export class PollController {
             await PollRepository.vote(pollId, userId, optionIds);
 
             const poll = await PollRepository.getPollDetail(pollId, userId);
-            getIO()?.to(meta.chat_id).emit('poll_updated', poll);
+            await PollController.broadcastPollUpdate(pollId, meta.chat_id, userId, poll);
 
             res.status(200).json(poll);
         } catch (error) {
@@ -155,7 +177,7 @@ export class PollController {
             }
 
             const poll = await PollRepository.getPollDetail(pollId, userId);
-            getIO()?.to(meta.chat_id).emit('poll_updated', poll);
+            await PollController.broadcastPollUpdate(pollId, meta.chat_id, userId, poll);
 
             res.status(200).json(poll);
         } catch (error) {
