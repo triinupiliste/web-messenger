@@ -88,15 +88,34 @@ export class MessageRepository {
         await pool.query(query, [messageId, status]);
     }
 
-    static async markChatMessagesRead(chatId: string, userId: string): Promise<void> {
-        const query = `
-            UPDATE messages 
-            SET status = 'read' 
-            WHERE chat_id = $1 
-              AND sender_id != $2 
-              AND status != 'read' 
-              AND is_deleted = FALSE`;
-        await pool.query(query, [chatId, userId]);
+    static async markChatMessagesRead(chatId: string, userId: string): Promise<{ id: string }[]> {
+        await pool.query(
+            'UPDATE chat_participants SET last_read_at = NOW() WHERE chat_id = $1 AND user_id = $2',
+            [chatId, userId],
+        );
+
+        // A message only becomes 'read' once every OTHER (non-deleted) participant has
+        // read up to at least that message's timestamp. For a 1:1 chat that's just the
+        // other person; for a group, it means the sender's tick doesn't flip to "read"
+        // until *all* other members have seen it, not just the first one to open the chat.
+        const result = await pool.query(
+            `UPDATE messages
+             SET status = 'read'
+             WHERE chat_id = $1
+               AND sender_id != $2
+               AND status != 'read'
+               AND is_deleted = FALSE
+               AND NOT EXISTS (
+                   SELECT 1 FROM chat_participants other
+                   WHERE other.chat_id = messages.chat_id
+                     AND other.user_id != messages.sender_id
+                     AND other.is_deleted = FALSE
+                     AND (other.last_read_at IS NULL OR other.last_read_at < messages.created_at)
+               )
+             RETURNING id`,
+            [chatId, userId],
+        );
+        return result.rows;
     }
 
     static async editMessage(messageId: string, senderId: string, newContent: string): Promise<Message | null> {

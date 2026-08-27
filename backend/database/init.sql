@@ -59,6 +59,7 @@ CREATE TABLE chat_participants (
     is_muted BOOLEAN DEFAULT FALSE, -- Satisfies the chat muting requirement
     is_deleted BOOLEAN DEFAULT FALSE, -- Per-user "delete chat" (hides it from that user's list only)
     cleared_at TIMESTAMP, -- Hides messages sent before this time, for this user only
+    last_read_at TIMESTAMP, -- This user's read cursor: messages sent after this time (by someone else) are unread for them. NULL means nothing has been read yet.
     PRIMARY KEY (chat_id, user_id)
 );
 

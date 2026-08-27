@@ -48,7 +48,7 @@ class MessageProvider with ChangeNotifier {
   late final void Function(dynamic) _onUserTyping;
   late final void Function(dynamic) _onMessageEdited;
   late final void Function(dynamic) _onMessageDeleted;
-  late final void Function(dynamic) _onMessagesRead;
+  late final void Function(dynamic) _onMessageStatusUpdated;
   late final void Function(dynamic) _onPollUpdated;
 
   // Joins the chat room, registers all real-time listeners, and loads
@@ -149,21 +149,23 @@ class MessageProvider with ChangeNotifier {
     };
     SocketService.on(SocketEvents.messageDeleted, _onMessageDeleted);
 
-    // When the other participant reads this chat, mark my sent messages 'read'.
-    _onMessagesRead = (data) {
-      if (data['chatId'] != chatId) return;
-      // If I'm the one who just read the chat, my own sent messages weren't affected.
-      if (_currentUserId != null && data['readerId'] == _currentUserId) return;
-      var changed = false;
-      for (final m in _messages) {
-        if (m['sender_id'] == _currentUserId && m['status'] != 'read') {
-          m['status'] = 'read';
-          changed = true;
-        }
-      }
-      if (changed) notifyListeners();
+    // The backend only broadcasts this once a message's status actually changes
+    // server-side — 'delivered' when it reaches another participant's device, and
+    // (for group chats) 'read' only once *every* other participant has read it,
+    // not just the first one. A rank check guards against a late/out-of-order
+    // 'delivered' echo overwriting an already-'read' status.
+    _onMessageStatusUpdated = (data) {
+      final messageId = data['messageId']?.toString();
+      final status = data['status']?.toString();
+      if (messageId == null || status == null) return;
+      final index = _messages.indexWhere((m) => m['id'] == messageId);
+      if (index == -1) return;
+      const rank = {'sending': 0, 'failed': 0, 'sent': 1, 'delivered': 2, 'read': 3};
+      if ((rank[status] ?? 0) <= (rank[_messages[index]['status']] ?? 0)) return;
+      _messages[index]['status'] = status;
+      notifyListeners();
     };
-    SocketService.on(SocketEvents.messagesRead, _onMessagesRead);
+    SocketService.on(SocketEvents.messageStatusUpdated, _onMessageStatusUpdated);
 
     _onPollUpdated = (data) {
       final poll = Map<String, dynamic>.from(data as Map);
@@ -352,7 +354,7 @@ class MessageProvider with ChangeNotifier {
     SocketService.off(SocketEvents.userTyping, _onUserTyping);
     SocketService.off(SocketEvents.messageEdited, _onMessageEdited);
     SocketService.off(SocketEvents.messageDeleted, _onMessageDeleted);
-    SocketService.off(SocketEvents.messagesRead, _onMessagesRead);
+    SocketService.off(SocketEvents.messageStatusUpdated, _onMessageStatusUpdated);
     SocketService.off(SocketEvents.pollUpdated, _onPollUpdated);
     _typingTimer?.cancel();
     for (final timer in _pendingSendTimers.values) {

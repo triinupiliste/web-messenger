@@ -156,11 +156,13 @@ export class UserRepository {
                 END AS relationship_status
             FROM users u
             LEFT JOIN profiles p ON u.id = p.user_id
-            WHERE (u.username ILIKE $1 OR u.email_hash = $3) AND u.id != $2
+            WHERE (u.username ILIKE $1 OR u.email_hash = $3) AND u.id != $2 AND u.is_verified = TRUE
             ORDER BY u.username
             LIMIT 10`;
         // Username matches via ILIKE (public, searchable). Email is encrypted at
         // rest, so it only matches via its deterministic hash — the full address is required.
+        // Unverified accounts are excluded so users can't be found/invited before
+        // confirming their email.
         const result = await pool.query(query, [
             `%${searchTerm}%`,
             currentUserId,

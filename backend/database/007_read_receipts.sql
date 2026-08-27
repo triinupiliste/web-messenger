@@ -1,0 +1,21 @@
+-- NOTE: init.sql now creates `last_read_at` directly on chat_participants, so
+-- this migration is only needed for a database created before that column
+-- existed. Safe to re-run (uses IF NOT EXISTS); not required for a fresh
+-- clone. Also auto-applied on every server startup via
+-- ensureReadReceiptColumn() in migrate.ts, so running this file by hand is
+-- not required either — it's kept here purely for schema history.
+--
+-- Per-user read cursor, replacing the old approach of a single global
+-- `messages.status` column standing in for "has this been read" for every
+-- recipient at once. That worked for 1:1 chats (only one other recipient
+-- exists) but was wrong for group chats: one member reading the chat would
+-- mark it 'read' for everyone, instantly clearing other members' unread
+-- badges for messages they hadn't actually seen yet, and flipping the
+-- sender's tick to "read" after only a single member had seen it.
+--
+-- With last_read_at, unread counts are computed per participant, and a
+-- message is only considered fully 'read' once every other (non-deleted)
+-- participant's last_read_at has caught up to it (see
+-- MessageRepository.markChatMessagesRead).
+ALTER TABLE chat_participants
+    ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMP;

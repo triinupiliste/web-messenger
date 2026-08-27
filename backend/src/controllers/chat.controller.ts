@@ -95,10 +95,18 @@ export class ChatController {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
-            await MessageRepository.markChatMessagesRead(chatId, userId);
+            const nowFullyRead = await MessageRepository.markChatMessagesRead(chatId, userId);
 
             // Notify the other participant(s) in real time so their sent messages show as read.
             getIO()?.to(chatId).emit('messages_read', { chatId, readerId: userId });
+
+            // In a group chat a message only becomes fully 'read' once every other member
+            // has caught up (see markChatMessagesRead) — broadcast exactly which messages
+            // just crossed that line so senders' ticks update precisely, instead of
+            // flipping to "read" the moment just one of several recipients has seen it.
+            for (const msg of nowFullyRead) {
+                getIO()?.to(chatId).emit('message_status_updated', { messageId: msg.id, status: 'read' });
+            }
 
             res.status(200).json({ message: 'Messages marked as read.' });
         } catch (error) {

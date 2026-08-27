@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
@@ -8,6 +9,23 @@ import '../chat/chat_room_screen.dart';
 import '../invites/invites_screen.dart';
 import '../search/search_screen.dart';
 import '../profile/profile_screen.dart';
+
+// One chat currently shown in its own pane in the wide-screen split-pane
+// layout. On web, several of these can be open side by side at once; on
+// mobile/narrow layouts there is never more than one.
+class _OpenChat {
+  final String chatId;
+  final String contactId;
+  final String contactName;
+  final bool isGroup;
+
+  const _OpenChat({
+    required this.chatId,
+    required this.contactId,
+    required this.contactName,
+    required this.isGroup,
+  });
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -34,27 +52,46 @@ class HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final _profileKey = GlobalKey<ProfileScreenState>();
 
-  // Wide-screen split-pane (Chats tab only): which chat is shown in the
-  // detail pane alongside the chat list. Null means nothing selected yet
+  // Wide-screen split-pane (Chats tab only): which chat(s) are shown in the
+  // detail pane(s) alongside the chat list. Empty means nothing selected yet
   // (shows a placeholder). Lives here (not in ChatListScreen) so it survives
   // switching to another tab and back.
-  String? _selectedChatId;
-  String _selectedContactId = '';
-  String _selectedContactName = '';
-  bool _selectedIsGroup = false;
+  //
+  // On web, more than one chat can be open side by side at once (browser-tab-like);
+  // on mobile this list is never allowed to hold more than one entry, keeping the
+  // original single-detail-pane behavior unchanged there.
+  static const _maxOpenChatsOnWeb = 3;
+  final List<_OpenChat> _openChats = [];
 
   void _selectChat(String chatId, String contactId, String contactName, bool isGroup) {
     setState(() {
-      _selectedChatId = chatId;
-      _selectedContactId = contactId;
-      _selectedContactName = contactName;
-      _selectedIsGroup = isGroup;
+      if (_openChats.any((c) => c.chatId == chatId)) return; // already open in its own pane
+
+      final newChat = _OpenChat(
+        chatId: chatId,
+        contactId: contactId,
+        contactName: contactName,
+        isGroup: isGroup,
+      );
+
+      if (!kIsWeb) {
+        _openChats
+          ..clear()
+          ..add(newChat);
+        return;
+      }
+
+      // Web: keep adding side-by-side panes, evicting the oldest once the cap
+      // is hit so panes don't get squeezed down to unreadable widths.
+      if (_openChats.length >= _maxOpenChatsOnWeb) {
+        _openChats.removeAt(0);
+      }
+      _openChats.add(newChat);
     });
   }
 
-  void _clearSelectedChat() {
-    if (_selectedChatId == null) return;
-    setState(() => _selectedChatId = null);
+  void _closeChat(String chatId) {
+    setState(() => _openChats.removeWhere((c) => c.chatId == chatId));
   }
 
   // Switches to the Chats tab and refreshes it, mirroring what tapping the
@@ -141,8 +178,9 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   // Wide-screen-only layout for the Chats tab: the chat list stays visible in
-  // a fixed-width left column while the selected chat opens directly in the
-  // remaining space, instead of navigating away to a full-screen route.
+  // a fixed-width left column while the selected chat(s) open directly in the
+  // remaining space (as one or more side-by-side panes on web), instead of
+  // navigating away to a full-screen route.
   Widget _buildChatsSplitPane() {
     return Row(
       children: [
@@ -150,26 +188,35 @@ class HomeScreenState extends State<HomeScreen> {
           width: 360,
           child: ChatListScreen(
             splitPaneMode: true,
-            selectedChatId: _selectedChatId,
+            openChatIds: _openChats.map((c) => c.chatId).toSet(),
             onChatSelected: _selectChat,
           ),
         ),
         const VerticalDivider(width: 1, thickness: 1),
         Expanded(
-          child: _selectedChatId == null
+          child: _openChats.isEmpty
               ? _buildNoChatSelectedPlaceholder()
-              : ChatRoomScreen(
-                  // Forces a full remount (dispose + initState) when the
-                  // selection changes, since chatId/contactName aren't the
-                  // only state this screen owns (search box, group member
-                  // cache, etc.) — without this key Flutter would just patch
-                  // the existing element's widget config in place.
-                  key: ValueKey(_selectedChatId),
-                  chatId: _selectedChatId!,
-                  contactId: _selectedContactId,
-                  contactName: _selectedContactName,
-                  isGroup: _selectedIsGroup,
-                  onClose: _clearSelectedChat,
+              : Row(
+                  children: [
+                    for (var i = 0; i < _openChats.length; i++) ...[
+                      if (i > 0) const VerticalDivider(width: 1, thickness: 1),
+                      Expanded(
+                        child: ChatRoomScreen(
+                          // Forces a full remount (dispose + initState) when the
+                          // selection changes, since chatId/contactName aren't the
+                          // only state this screen owns (search box, group member
+                          // cache, etc.) — without this key Flutter would just patch
+                          // the existing element's widget config in place.
+                          key: ValueKey(_openChats[i].chatId),
+                          chatId: _openChats[i].chatId,
+                          contactId: _openChats[i].contactId,
+                          contactName: _openChats[i].contactName,
+                          isGroup: _openChats[i].isGroup,
+                          onClose: () => _closeChat(_openChats[i].chatId),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
         ),
       ],

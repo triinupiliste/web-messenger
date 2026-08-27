@@ -29,6 +29,13 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
+  <!-- cropperjs: required by the image_cropper plugin's web implementation.
+       Without these, ImageCropper().cropImage() has no crop UI to render on
+       web and silently resolves to null, so picking an avatar photo appears
+       to do nothing past the file picker. -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+
   <title>Mobile Messenger</title>
   <link rel="manifest" href="manifest.json">
 </head>

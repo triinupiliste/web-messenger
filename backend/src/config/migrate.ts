@@ -23,6 +23,7 @@ export async function runMigrations(): Promise<void> {
     await ensureSessionsTable();
     await ensureGroupChatColumns();
     await ensurePollTables();
+    await ensureReadReceiptColumn();
 }
 
 // Encrypts leftover plaintext emails from before email encryption existed.
@@ -126,4 +127,10 @@ async function ensurePollTables(): Promise<void> {
         )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_poll_options_poll ON poll_options(poll_id)');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_poll_votes_poll ON poll_votes(poll_id)');
+}
+
+// Adds the per-participant read cursor for DBs created before it existed.
+// No-op for new installs — init.sql already creates this column.
+async function ensureReadReceiptColumn(): Promise<void> {
+    await pool.query('ALTER TABLE chat_participants ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMP');
 }

@@ -1,10 +1,12 @@
-# Mobile Messenger
+# Web Messenger
 
 ## Introduction
 
-Mobile Messenger is a real-time, end-to-end chat application. Its Flutter Android client connects to a Node.js, Express, Socket.IO, and PostgreSQL backend, hosted on Railway.
+Web Messenger is a real-time, end-to-end chat application with both a Flutter Android client and a Flutter Web client, sharing one codebase. Both connect to the same Node.js, Express, Socket.IO, and PostgreSQL backend, hosted on Railway.
 
-Users can create accounts, verify their email addresses, search for and invite contacts, exchange text/image/video/audio messages, reply to and manage their own messages, and get push notifications for new messages and invitations. The backend is authoritative: it persists every message, encrypts sensitive data (including email addresses) at rest, compresses video server-side, and pushes real-time updates to connected clients through Socket.IO.
+Users can create accounts, verify their email addresses, search for and invite contacts, exchange text/image/video/audio messages, chat 1:1 or in groups, create and vote in polls, reply to and manage their own messages, and get push notifications for new messages and invitations. The backend is authoritative: it persists every message, encrypts sensitive data (including email addresses) at rest, compresses video server-side, and pushes real-time updates to connected clients through Socket.IO.
+
+The web client reuses the Android app's codebase, with `kIsWeb`-gated adjustments for browser constraints: gallery-only media picking (no camera capture), hover-revealed message/chat menus instead of long-press/swipe gestures, downloads via the browser's Save dialog instead of the device photo gallery, and a wide-viewport split-pane layout (chat list beside the open chat). See [Run the Web Client](#run-the-web-client) to try it.
 
 ## Main Features
 
@@ -14,6 +16,8 @@ Users can create accounts, verify their email addresses, search for and invite c
 - Text, image, video, and audio (voice note) messaging, with server-side video compression for reliable uploads
 - Swipe-to-reply message quoting, real-time typing indicators, and sent/delivered/read status
 - Message editing and deletion
+- 1:1 and group chats, with group creation and membership management
+- In-chat polls, with optional anonymous voting; votes can be changed or retracted at any time
 - Chat list sorted by most recent activity, with archive/unarchive and per-user delete (clears history from just your own view, like WhatsApp)
 - Push notifications for new messages and invitations, with per-chat mute
 - Selectable app themes (Sunset Coral, Calm Forest, Ocean Blue) plus a dedicated dark mode, with an elevated, consistent design (custom typography, cached/fade-in media, gradient avatars, richer empty states) across every screen
@@ -24,7 +28,7 @@ Users can create accounts, verify their email addresses, search for and invite c
 
 | Area | Technology |
 | --- | --- |
-| Mobile client | Flutter / Dart, Provider, `http`, `socket_io_client` |
+| Client (Android & Web) | Flutter / Dart, Provider, `http`, `socket_io_client`, `kIsWeb`-gated platform branching |
 | Backend | Node.js, Express, TypeScript, Socket.IO |
 | Database | PostgreSQL 15; Docker locally and Railway PostgreSQL in the hosted deployment |
 | Authentication | JWT and bcrypt password hashing |
@@ -33,7 +37,7 @@ Users can create accounts, verify their email addresses, search for and invite c
 | Push notifications | Firebase Cloud Messaging (FCM) with `flutter_local_notifications` |
 | Media | `image_picker`, `record`, `audioplayers`, and server-side `ffmpeg` for photo, video, and voice messages |
 | UI | `google_fonts` (Manrope typography), `cached_network_image` + `shimmer` (cached, fade-in media with loading placeholders), Material 3 |
-| Deployment | Railway web service, PostgreSQL, and a distributed Android APK |
+| Deployment | Railway web service, PostgreSQL, and a distributed Android APK. The Flutter web client isn't hosted anywhere yet — see [Run the Web Client](#run-the-web-client) |
 
 ## Quick Start Guide for Reviewers
 
@@ -46,6 +50,8 @@ https://mobile-messenger-production.up.railway.app
 ```
 
 No Flutter, Node.js, database, Docker, ngrok, or local setup is needed to review the released APK. Download it and choose one of the options below.
+
+> Reviewing the web client instead? It isn't hosted anywhere yet — see [Run the Web Client](#run-the-web-client) for how to run it locally against either the hosted Railway backend or your own.
 
 > The app needs an internet connection. Before testing, the Railway service should respond at `https://mobile-messenger-production.up.railway.app/`.
 
@@ -190,7 +196,7 @@ Run these commands in order:
    curl -i http://localhost:5000/api/auth/login
    ```
 
-3. Point the Flutter client at the backend by editing `serverBaseUrl` in [frontend/lib/config/server_config.dart](frontend/lib/config/server_config.dart) **before** running or building the app — whatever URL is set there at that time is what the app (whether launched with `flutter run` or packaged into an APK) will talk to; there is no way to change it afterwards without rebuilding:
+3. Point the Flutter client at the backend. `serverBaseUrl` in [frontend/lib/config/server_config.dart](frontend/lib/config/server_config.dart) reads from `--dart-define=SERVER_BASE_URL=...` at build/run time, falling back to the hosted Railway URL when that define isn't passed — so for the Android app specifically, the simplest option is still to edit the fallback value in that file **before** running or building (an APK has no way to change it afterwards without rebuilding):
    - Single USB-tethered device with `adb reverse tcp:5000 tcp:5000`: `http://127.0.0.1:5000`
    - Emulator or phone on the same Wi-Fi network as the backend: `http://<computer-LAN-IP>:5000`
    - Physical device(s) on a separate network (or anyone you're sharing a built APK with), backend exposed via ngrok:
@@ -210,7 +216,28 @@ Run these commands in order:
 
 Do not use `localhost` when the client runs on a separate device — it would resolve to the device itself, not your computer.
 
-> `serverBaseUrl` is a plain constant (not a `--dart-define`), and is currently checked in pointing at the hosted Railway backend so the released APK works out of the box. When developing against your own backend, change it locally as above, and avoid committing that change back — restore the Railway URL (or move it behind an environment-specific build flavor) before pushing.
+> When developing against your own backend on Android, edit the fallback value locally as above, and avoid committing that change back — restore the Railway URL before pushing. The web client (below) doesn't need this workaround since `--dart-define` can point it anywhere without touching the source.
+
+## Run the Web Client
+
+The web client shares the same codebase and backend as the Android app — start the backend as in step 1-2 above, then point Flutter at it with `--dart-define` instead of editing `server_config.dart`:
+
+```bash
+cd frontend
+flutter run -d chrome --dart-define=SERVER_BASE_URL=http://localhost:5000
+```
+
+Replace the URL with whatever backend you're targeting (a local backend, an ngrok HTTPS URL, or the Railway URL). Omitting `--dart-define=SERVER_BASE_URL=...` falls back to the hosted Railway backend, same as the Android app. The backend's CORS config (`isOriginAllowed` in [env.ts](backend/src/config/env.ts)) already allows any `http://localhost:<port>` origin outside of production, which is what `flutter run -d chrome` uses (it picks a random dev-server port each run).
+
+To produce a static build instead of running the Chrome dev server:
+
+```bash
+flutter build web --dart-define=SERVER_BASE_URL=https://your-backend-host
+```
+
+The output is written to `frontend/build/web/`. **This build isn't hosted anywhere right now** — there's no Netlify/Vercel/Firebase Hosting config in the repo, and the backend doesn't serve it as static files. To make the web client reachable at a URL instead of only via `flutter run -d chrome`, either deploy `frontend/build/web/` to any static host, or add `express.static('frontend/build/web')` (plus a catch-all route) to [server.ts](backend/src/server.ts) so the existing Railway backend can serve it too.
+
+Known web-specific differences from the Android app: gallery-only media picking (no camera capture), hover-revealed message/chat menus instead of long-press/swipe, saving media downloads it via the browser instead of the device gallery, and a wide-viewport split-pane layout (chat list beside a single open chat, rather than full-screen navigation).
 
 ### Build Your Own Release APK
 
@@ -250,6 +277,7 @@ mobile-messenger/
 │       ├── utils/        # Encryption and validation helpers
 │       └── server.ts     # HTTP and Socket.IO server entry point
 └── frontend/
+    ├── web/              # Flutter web entry point (index.html, manifest, icons)
     └── lib/
         ├── config/       # Backend URL configuration
         ├── constants/    # Shared app constants
@@ -283,3 +311,4 @@ mobile-messenger/
 - **Existing data unreadable after a configuration change:** restore the original `ENCRYPTION_KEY`; encrypted messages, profile fields, media, and email addresses all depend on that one stable key.
 - **Video upload fails or times out:** confirm the backend container actually has `ffmpeg` installed (`docker exec -it <container> ffmpeg -version`) and that Railway's plan has enough CPU/time budget for compression on larger videos.
 - **Previously sent media (images/videos/voice notes) becomes unreachable after a new deploy:** `docker-compose.yml`'s `uploads_data` volume only persists uploads for local `docker compose` runs — it has no effect on Railway, which builds directly from the repo. Without a Railway Volume mounted at `/app/uploads` for the backend service, every redeploy gives the container a fresh, empty filesystem and wipes all previously uploaded files (the database rows/encrypted content are unaffected, only the files on disk are lost). Fix: in the Railway dashboard, open the backend service → Settings → Volumes → add a volume mounted at `/app/uploads`, then redeploy. Files lost from before the volume was attached cannot be recovered.
+- **`flutter run -d chrome` can't reach a local backend / CORS error in the browser console:** confirm the backend is actually running (`docker compose up --build`) and that `NODE_ENV` isn't set to `production` locally — `isOriginAllowed` in [env.ts](backend/src/config/env.ts) only auto-allows `http://localhost:<port>` origins outside of production. Also confirm the `--dart-define=SERVER_BASE_URL=...` value matches the backend's actual host/port.

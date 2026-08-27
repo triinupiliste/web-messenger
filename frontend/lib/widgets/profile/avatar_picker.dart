@@ -1,7 +1,8 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:image_cropper/image_cropper.dart';
+import 'avatar_cropper.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/snackbar_helper.dart';
 import '../common/user_avatar.dart';
@@ -28,34 +29,8 @@ class AvatarPicker extends StatelessWidget {
 
     if (!context.mounted) return;
 
-    final croppedFile = await ImageCropper().cropImage(
-      sourcePath: pickedFile.path,
-      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
-      uiSettings: [
-        AndroidUiSettings(
-          toolbarTitle: 'Crop Profile Picture',
-          toolbarColor: AppColors.primary,
-          toolbarWidgetColor: Colors.white,
-          initAspectRatio: CropAspectRatioPreset.square,
-          lockAspectRatio: true,
-        ),
-        // Without this, image_cropper's web plugin has no crop UI to show at
-        // all: cropImage() silently resolves to null on web, which is why
-        // picking a photo on the web build previously did nothing past the
-        // file picker (no crop dialog, and no image ever got applied).
-        WebUiSettings(
-          context: context,
-          presentStyle: WebPresentStyle.dialog,
-          size: const CropperSize(width: 400, height: 400),
-        ),
-      ],
-    );
-
-    if (croppedFile == null) return;
-
-    // readAsBytes() works cross-platform (unlike dart:io File, which can't
-    // read the blob: URLs that image_picker/image_cropper hand back on web).
-    final bytes = await croppedFile.readAsBytes();
+    final bytes = await cropAvatarImage(context, pickedFile.path);
+    if (bytes == null) return;
 
     const maxBytes = 5 * 1024 * 1024;
     if (bytes.length > maxBytes) {
@@ -71,7 +46,13 @@ class AvatarPicker extends StatelessWidget {
   void _showPickerOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      builder: (BuildContext context) {
+      // Named distinctly from the outer `context` on purpose: this one is
+      // only valid for popping the sheet itself. It becomes unmounted well
+      // before an async image pick + crop can finish, so using it (instead
+      // of the outer, longer-lived screen context) for `_pickImage` caused
+      // `_pickImage`'s `context.mounted` check to always fail — silently
+      // bailing out with no crop dialog and no photo ever applied.
+      builder: (BuildContext sheetContext) {
         return SafeArea(
           child: Wrap(
             children: <Widget>[
@@ -79,18 +60,19 @@ class AvatarPicker extends StatelessWidget {
                 leading: Icon(Icons.photo_library, color: AppColors.primary),
                 title: const Text('Pick from Gallery'),
                 onTap: () {
-                  Navigator.of(context).pop();
+                  Navigator.of(sheetContext).pop();
                   _pickImage(context, ImageSource.gallery);
                 },
               ),
-              ListTile(
-                leading: Icon(Icons.photo_camera, color: AppColors.primary),
-                title: const Text('Take a Photo'),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  _pickImage(context, ImageSource.camera);
-                },
-              ),
+              if (!kIsWeb)
+                ListTile(
+                  leading: Icon(Icons.photo_camera, color: AppColors.primary),
+                  title: const Text('Take a Photo'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _pickImage(context, ImageSource.camera);
+                  },
+                ),
             ],
           ),
         );

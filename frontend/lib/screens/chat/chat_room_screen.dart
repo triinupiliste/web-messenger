@@ -846,10 +846,19 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
                 autofocus: true,
                 onChanged: _onSearchChanged,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: 'Search messages...',
-                  hintStyle: TextStyle(color: Colors.white70),
+                  hintStyle: const TextStyle(color: Colors.white70),
                   border: InputBorder.none,
+                  // Clears the query and drops back out of search mode entirely
+                  // (matching the back arrow), rather than just emptying the field.
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                          tooltip: 'Clear search',
+                          onPressed: _stopSearch,
+                        ),
                 ),
               ),
               actions: [
@@ -947,6 +956,19 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
                     ],
                   ],
                 ),
+                // Only set in the wide-screen split-pane layout, where this
+                // screen is mounted directly in a Row instead of pushed as a
+                // route — there's no back button to fall back on, so give
+                // web users an explicit way to close this specific pane
+                // (mobile always pushes a route instead, so onClose is null
+                // there and this button never shows). Kept as the rightmost
+                // action so every per-chat button lives in the top-right corner.
+                if (widget.onClose != null)
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    tooltip: 'Close chat',
+                    onPressed: widget.onClose,
+                  ),
               ],
             ),
       body: Column(

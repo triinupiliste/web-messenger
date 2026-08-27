@@ -184,8 +184,12 @@ export class ChatRepository {
                 FROM messages msg2
                 WHERE msg2.chat_id = cp.chat_id
                   AND msg2.sender_id != $1
-                  AND msg2.status != 'read'
                   AND msg2.is_deleted = FALSE
+                  -- Per-participant read cursor: a message the reader (or anyone else in a
+                  -- group) hasn't caught up to yet still counts as unread for them
+                  -- specifically, regardless of whether other members have read it.
+                  AND msg2.created_at > COALESCE(cp.last_read_at, '-infinity'::timestamp)
+                  AND (cp.cleared_at IS NULL OR msg2.created_at > cp.cleared_at)
             ) unread ON true
             WHERE cp.user_id = $1 AND cp.is_deleted = FALSE
             ORDER BY m.created_at DESC NULLS LAST`;

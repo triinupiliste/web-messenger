@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../constants/socket_events.dart';
 import '../../providers/chat_provider.dart';
 import '../../services/api_service.dart';
+import '../../services/socket_service.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/json_utils.dart';
 import '../../utils/snackbar_helper.dart';
@@ -28,6 +30,10 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
   String? _currentUserId;
   late String _groupName;
 
+  // Stored so dispose() can unregister exactly this callback rather than
+  // leaking a listener on the shared socket singleton.
+  late final void Function(dynamic) _onGroupMemberAdded;
+
   bool get _isOwner {
     final me = _members.firstWhere(
       (m) => m['user_id']?.toString() == _currentUserId,
@@ -41,10 +47,26 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
     super.initState();
     _groupName = widget.groupName;
     _load();
+
+    // Someone just accepted an invite to this group (possibly on another
+    // device, or while this screen was already open) — refresh the member
+    // list live instead of only picking it up next time this screen opens.
+    _onGroupMemberAdded = (data) {
+      if (!mounted) return;
+      if (data['chatId']?.toString() != widget.chatId) return;
+      _load(showLoadingIndicator: false);
+    };
+    SocketService.on(SocketEvents.groupMemberAdded, _onGroupMemberAdded);
   }
 
-  Future<void> _load() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    SocketService.off(SocketEvents.groupMemberAdded, _onGroupMemberAdded);
+    super.dispose();
+  }
+
+  Future<void> _load({bool showLoadingIndicator = true}) async {
+    if (showLoadingIndicator) setState(() => _isLoading = true);
     try {
       final profile = await ApiService.getProfile();
       final members = await ApiService.getGroupMembers(widget.chatId);
@@ -54,11 +76,11 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
         _members = members;
       });
     } catch (e) {
-      if (mounted) {
+      if (mounted && showLoadingIndicator) {
         SnackBarHelper.show(context, 'Failed to load group: ${e.toString().replaceFirst('Exception: ', '')}');
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && showLoadingIndicator) setState(() => _isLoading = false);
     }
   }
 

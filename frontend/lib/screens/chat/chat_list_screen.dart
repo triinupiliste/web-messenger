@@ -13,16 +13,17 @@ import 'chat_room_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   // When set (wide-screen split-pane layout only), tapping a chat calls
-  // onChatSelected to update the detail pane in place instead of pushing a
-  // full-screen ChatRoomScreen route; selectedChatId highlights the active row.
+  // onChatSelected to update the detail pane(s) in place instead of pushing a
+  // full-screen ChatRoomScreen route; openChatIds highlights every row that
+  // currently has its own open pane (on web, more than one can be open at once).
   final bool splitPaneMode;
-  final String? selectedChatId;
+  final Set<String> openChatIds;
   final void Function(String chatId, String contactId, String contactName, bool isGroup)? onChatSelected;
 
   const ChatListScreen({
     super.key,
     this.splitPaneMode = false,
-    this.selectedChatId,
+    this.openChatIds = const {},
     this.onChatSelected,
   });
 
@@ -264,12 +265,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
               final content = Container(
                 margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                 decoration: BoxDecoration(
-                  color: (widget.splitPaneMode && widget.selectedChatId == chatId)
+                  color: (widget.splitPaneMode && widget.openChatIds.contains(chatId))
                       ? AppColors.primary.withValues(alpha: 0.1)
                       : AppColors.surface,
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: (widget.splitPaneMode && widget.selectedChatId == chatId)
+                    color: (widget.splitPaneMode && widget.openChatIds.contains(chatId))
                         ? AppColors.primary
                         : AppColors.cardBorder,
                   ),

@@ -20,6 +20,7 @@ class SocketEvents {
   static const String messageEdited = 'message_edited';
   static const String messageDeleted = 'message_deleted';
   static const String messagesRead = 'messages_read';
+  static const String messageStatusUpdated = 'message_status_updated';
   static const String friendRemoved = 'friend_removed';
   static const String newInvite = 'new_invite';
   static const String inviteResponded = 'invite_responded';
