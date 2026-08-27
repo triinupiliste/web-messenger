@@ -16,6 +16,16 @@ class MessageProviderRegistry {
   static final Map<String, MessageProvider> _providers = {};
 
   static MessageProvider getOrCreate(String chatId) {
+    final existing = _providers[chatId];
+    if (existing != null) {
+      // Re-checks (and if needed, re-attaches) this provider's socket listeners
+      // and room membership — a no-op unless the underlying socket has changed
+      // since it was last attached (e.g. a different user logged in within this
+      // same app session), which would otherwise leave this cached provider
+      // silently deaf to real-time updates for this chat.
+      existing.ensureSocketListeners();
+      return existing;
+    }
     return _providers.putIfAbsent(chatId, () => MessageProvider(chatId)..init());
   }
 }

@@ -100,6 +100,11 @@ export class ChatController {
             // Notify the other participant(s) in real time so their sent messages show as read.
             getIO()?.to(chatId).emit('messages_read', { chatId, readerId: userId });
 
+            // Also notify the reader's OWN other sessions (e.g. the same account open in
+            // a second browser tab/window) so this chat's unread badge clears there too,
+            // instead of only updating locally in whichever session actually opened it.
+            getIO()?.to(userId).emit('chat_read', { chatId });
+
             // In a group chat a message only becomes fully 'read' once every other member
             // has caught up (see markChatMessagesRead) — broadcast exactly which messages
             // just crossed that line so senders' ticks update precisely, instead of

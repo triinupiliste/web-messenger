@@ -8,16 +8,20 @@ class InviteProvider with ChangeNotifier {
   List<dynamic> _incoming = [];
   List<dynamic> _outgoing = [];
   bool _isLoading = false;
-  bool _socketListenerAttached = false;
+  // The socket generation (see SocketService.socketGeneration) our listeners are
+  // currently registered against; -1 means "not attached to anything yet".
+  int _attachedSocketGeneration = -1;
 
   // Incoming invite ids the user has already looked at (i.e. had the Invites
   // tab open since they arrived). Drives the badge on the bottom nav icon.
   final Set<String> _seenInviteIds = {};
 
-  // Stored so dispose() can unregister exactly these callbacks.
-  late final void Function(dynamic) _onNewInvite;
-  late final void Function(dynamic) _onInviteResponded;
-  late final void Function(dynamic) _onProfileUpdated;
+  // Stored so dispose()/re-attachment can unregister exactly these callbacks.
+  // Not `final`: a different user logging in within the same app session gets a
+  // brand new underlying socket, so these get re-created and re-registered then.
+  late void Function(dynamic) _onNewInvite;
+  late void Function(dynamic) _onInviteResponded;
+  late void Function(dynamic) _onProfileUpdated;
 
   List<dynamic> get incoming => _incoming;
   List<dynamic> get outgoing => _outgoing;
@@ -57,8 +61,12 @@ class InviteProvider with ChangeNotifier {
   // Listen globally so the Invites screen (and the nav badge) update the
   // instant a new invite arrives or one of ours gets responded to, instead of
   // only refreshing the next time the screen is opened.
+  // Safe to call repeatedly: it's a no-op unless the underlying socket has changed
+  // since we last attached (e.g. a different user logged in within this same app
+  // session, replacing the socket instance our listeners were bound to).
   void _initGlobalSocketListener() {
-    if (_socketListenerAttached) return;
+    if (_attachedSocketGeneration == SocketService.socketGeneration) return;
+    _detachSocketListeners();
     try {
       _onNewInvite = (data) {
         final id = _inviteId(data);
@@ -113,10 +121,19 @@ class InviteProvider with ChangeNotifier {
       };
       SocketService.on(SocketEvents.profileUpdated, _onProfileUpdated);
 
-      _socketListenerAttached = true;
+      _attachedSocketGeneration = SocketService.socketGeneration;
     } catch (e) {
       debugPrint('Socket listener initialization deferred: $e');
     }
+  }
+
+  // Unregisters from whatever socket generation we were previously attached to
+  // (safe no-op the first time, before anything has ever been registered).
+  void _detachSocketListeners() {
+    if (_attachedSocketGeneration == -1) return;
+    SocketService.off(SocketEvents.newInvite, _onNewInvite);
+    SocketService.off(SocketEvents.inviteResponded, _onInviteResponded);
+    SocketService.off(SocketEvents.profileUpdated, _onProfileUpdated);
   }
 
   Future<void> respondToInvite(String inviteId, String status) async {
@@ -130,11 +147,7 @@ class InviteProvider with ChangeNotifier {
 
   @override
   void dispose() {
-    if (_socketListenerAttached) {
-      SocketService.off(SocketEvents.newInvite, _onNewInvite);
-      SocketService.off(SocketEvents.inviteResponded, _onInviteResponded);
-      SocketService.off(SocketEvents.profileUpdated, _onProfileUpdated);
-    }
+    _detachSocketListeners();
     super.dispose();
   }
 }

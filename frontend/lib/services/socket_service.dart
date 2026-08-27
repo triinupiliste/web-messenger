@@ -12,6 +12,14 @@ class SocketService {
   // on the same app process forces a fresh connection instead of reusing this one.
   static String? _connectedToken;
 
+  // Bumped every time initSocket() creates a brand new underlying Socket.IO
+  // client (e.g. a different user logs in within the same app session, or the
+  // very first connection). Long-lived singleton listeners (ChatProvider,
+  // InviteProvider) compare this against the generation they last attached to,
+  // so they know to re-register on the new socket instead of staying silently
+  // bound to a disposed one forever.
+  static int socketGeneration = 0;
+
   // Non-nullable getter to keep all existing provider and screen calls working seamlessly
   static io.Socket get socket {
     if (_socket == null) {
@@ -38,6 +46,7 @@ class SocketService {
       'autoConnect': false,
       'auth': {'token': token},
     });
+    socketGeneration++;
 
     final connected = Completer<void>();
 

@@ -10,7 +10,9 @@ import '../utils/json_utils.dart';
 class ChatProvider with ChangeNotifier {
   List<ChatModel> _chats = [];
   bool _isLoading = false;
-  bool _socketListenerAttached = false;
+  // The socket generation (see SocketService.socketGeneration) our listeners are
+  // currently registered against; -1 means "not attached to anything yet".
+  int _attachedSocketGeneration = -1;
   String? _currentUserId;
 
   // Chat swiped-to-delete but still within its "Undo" window; only persisted once the timer fires.
@@ -18,15 +20,19 @@ class ChatProvider with ChangeNotifier {
   int? _pendingDeleteIndex;
   Timer? _pendingDeleteTimer;
 
-  // Stored so dispose() can unregister exactly these callbacks.
-  late final void Function(dynamic) _onReceiveMessage;
-  late final void Function(dynamic) _onMessageDeleted;
-  late final void Function(dynamic) _onMessageEdited;
-  late final void Function(dynamic) _onFriendRemoved;
-  late final void Function(dynamic) _onInviteResponded;
-  late final void Function(dynamic) _onProfileUpdated;
-  late final void Function(dynamic) _onGroupMemberRemoved;
-  late final void Function(dynamic) _onGroupRenamed;
+  // Stored so dispose()/re-attachment can unregister exactly these callbacks.
+  // Not `final`: a different user logging in within the same app session gets a
+  // brand new underlying socket, so these get re-created and re-registered then.
+  late void Function(dynamic) _onReceiveMessage;
+  late void Function(dynamic) _onMessageDeleted;
+  late void Function(dynamic) _onMessageEdited;
+  late void Function(dynamic) _onFriendRemoved;
+  late void Function(dynamic) _onInviteResponded;
+  late void Function(dynamic) _onChatRead;
+  late void Function(dynamic) _onProfileUpdated;
+  late void Function(dynamic) _onGroupMemberRemoved;
+  late void Function(dynamic) _onGroupRenamed;
+  late void Function(dynamic) _onConnect;
 
   List<ChatModel> get chats => _chats;
   bool get isLoading => _isLoading;
@@ -56,6 +62,13 @@ class ChatProvider with ChangeNotifier {
       for (final chat in _chats) {
         NotificationSettingsService.setChatMuted(chat.chatId, chat.isMuted);
       }
+
+      // Join every one of this account's chat rooms, not just ones actually opened
+      // this session — otherwise a chat that isn't currently open in THIS browser
+      // tab/window never receives its receive_message/chat_read broadcasts (those
+      // are scoped to the chat's room), so this session's badge/preview for it
+      // would only ever catch up on a manual refresh.
+      _joinAllChatRooms();
     } catch (e) {
       debugPrint('Error fetching chats: $e');
     }
@@ -96,9 +109,13 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Listen globally for incoming messages to update the chat list preview and sorting
+  // Listen globally for incoming messages to update the chat list preview and sorting.
+  // Safe to call repeatedly: it's a no-op unless the underlying socket has changed
+  // since we last attached (e.g. a different user logged in within this same app
+  // session, replacing the socket instance our listeners were bound to).
   void _initGlobalSocketListener() {
-    if (_socketListenerAttached) return;
+    if (_attachedSocketGeneration == SocketService.socketGeneration) return;
+    _detachSocketListeners();
     try {
       _onReceiveMessage = (data) {
         final chatId = data['chat_id'] ?? data['chatId'];
@@ -207,6 +224,15 @@ class ChatProvider with ChangeNotifier {
       };
       SocketService.on(SocketEvents.inviteResponded, _onInviteResponded);
 
+      // This account read a chat's messages in another session (e.g. a second
+      // browser tab/window) — clear this chat's unread badge here too, instead
+      // of leaving it stale until a manual refresh.
+      _onChatRead = (data) {
+        final chatId = data['chatId']?.toString();
+        if (chatId != null) markChatRead(chatId);
+      };
+      SocketService.on(SocketEvents.chatRead, _onChatRead);
+
       // A contact changed their username/avatar; patch it into any chat we have with them.
       // Group chats always have an empty contactId, so this never matches a group by accident.
       _onProfileUpdated = (data) {
@@ -273,10 +299,66 @@ class ChatProvider with ChangeNotifier {
       };
       SocketService.on(SocketEvents.groupRenamed, _onGroupRenamed);
 
-      _socketListenerAttached = true;
+      // Rejoin every known chat room after a (re)connect — a dropped/replaced
+      // connection loses prior room membership, so without this a session that
+      // briefly disconnects would silently stop receiving live updates for
+      // chats it isn't actively viewing until the next manual refresh.
+      _onConnect = (_) => _joinAllChatRooms();
+      SocketService.on(SocketEvents.connect, _onConnect);
+
+      _attachedSocketGeneration = SocketService.socketGeneration;
     } catch (e) {
       debugPrint('Socket listener initialization deferred: $e');
     }
+  }
+
+  void _joinAllChatRooms() {
+    for (final chat in _chats) {
+      SocketService.joinChat(chat.chatId);
+    }
+  }
+
+  // Unregisters from whatever socket generation we were previously attached to
+  // (safe no-op the first time, before anything has ever been registered).
+  void _detachSocketListeners() {
+    if (_attachedSocketGeneration == -1) return;
+    SocketService.off(SocketEvents.receiveMessage, _onReceiveMessage);
+    SocketService.off(SocketEvents.messageDeleted, _onMessageDeleted);
+    SocketService.off(SocketEvents.messageEdited, _onMessageEdited);
+    SocketService.off(SocketEvents.friendRemoved, _onFriendRemoved);
+    SocketService.off(SocketEvents.inviteResponded, _onInviteResponded);
+    SocketService.off(SocketEvents.chatRead, _onChatRead);
+    SocketService.off(SocketEvents.profileUpdated, _onProfileUpdated);
+    SocketService.off(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
+    SocketService.off(SocketEvents.groupRenamed, _onGroupRenamed);
+    SocketService.off(SocketEvents.connect, _onConnect);
+  }
+
+  // Optimistically zeroes a chat's local unread badge the instant it's opened,
+  // instead of waiting for a future fetchChats()/receive_message to catch it up —
+  // markChatMessagesRead() (called by MessageProvider when the chat loads) updates
+  // the server, but doesn't by itself touch this provider's in-memory chat list.
+  void markChatRead(String chatId) {
+    final index = _chats.indexWhere((c) => c.chatId == chatId);
+    if (index == -1 || _chats[index].unreadCount == 0) return;
+    final existing = _chats[index];
+    _chats[index] = ChatModel(
+      chatId: existing.chatId,
+      isGroup: existing.isGroup,
+      contactId: existing.contactId,
+      contactName: existing.contactName,
+      contactAvatar: existing.contactAvatar,
+      memberCount: existing.memberCount,
+      lastMessageId: existing.lastMessageId,
+      lastMessage: existing.lastMessage,
+      lastMessageType: existing.lastMessageType,
+      lastMessageTime: existing.lastMessageTime,
+      lastMessageSenderId: existing.lastMessageSenderId,
+      unreadCount: 0,
+      isArchived: existing.isArchived,
+      isMuted: existing.isMuted,
+    );
+    notifyListeners();
   }
 
   Future<void> toggleArchiveChat(String chatId) async {
@@ -371,16 +453,7 @@ class ChatProvider with ChangeNotifier {
 
   @override
   void dispose() {
-    if (_socketListenerAttached) {
-      SocketService.off(SocketEvents.receiveMessage, _onReceiveMessage);
-      SocketService.off(SocketEvents.messageDeleted, _onMessageDeleted);
-      SocketService.off(SocketEvents.messageEdited, _onMessageEdited);
-      SocketService.off(SocketEvents.friendRemoved, _onFriendRemoved);
-      SocketService.off(SocketEvents.inviteResponded, _onInviteResponded);
-      SocketService.off(SocketEvents.profileUpdated, _onProfileUpdated);
-      SocketService.off(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
-      SocketService.off(SocketEvents.groupRenamed, _onGroupRenamed);
-    }
+    _detachSocketListeners();
     super.dispose();
   }
 }
