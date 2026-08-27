@@ -18,6 +18,8 @@ export const ENCRYPTION_KEY = requireEnv('ENCRYPTION_KEY');
 // Origins allowed to call the API/Socket.IO from a browser — stops a
 // malicious web page from making authenticated requests on a victim's behalf.
 const DEFAULT_ALLOWED_ORIGINS = [
+    'https://web-messenger-production-750e.up.railway.app',
+    'https://web-messenger.up.railway.app/',
     'https://mobile-messenger-production.up.railway.app',
     'http://localhost:5000',
     'http://127.0.0.1:5000',
