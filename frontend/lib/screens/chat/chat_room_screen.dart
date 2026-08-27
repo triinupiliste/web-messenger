@@ -111,11 +111,22 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
   // leaking listeners on the shared socket singleton.
   late final void Function(dynamic) _onErrorFeedback;
   late final void Function(dynamic) _onFriendRemoved;
+  late final void Function(dynamic) _onGroupMemberAdded;
   late final void Function(dynamic) _onGroupMemberRemoved;
   late final void Function(dynamic) _onGroupRenamed;
+  late final void Function(dynamic) _onProfileUpdated;
 
   // Overrides widget.contactName once a 'group_renamed' event arrives for this chat.
   String? _liveGroupName;
+  // 1:1 chats only: overrides widget.contactName once a 'profile_updated' event
+  // arrives for this contact (they changed their username while this chat is open).
+  String? _liveContactName;
+
+  // The name to show for this chat right now — the live-updated group/contact
+  // name if one has arrived, falling back to whatever was passed in when this
+  // screen was opened (which goes stale the moment someone renames a group, or
+  // the other person renames themselves, while this chat stays open).
+  String get _displayName => (widget.isGroup ? _liveGroupName : _liveContactName) ?? widget.contactName;
 
   // In-chat message search (Phase 5). Server decrypts-then-filters per chat, since
   // content is encrypted non-deterministically and can't be matched in SQL.
@@ -137,9 +148,46 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     _lastLoadingHistory = _messageProvider.isLoadingHistory;
     _messageProvider.addListener(_onMessagesChanged);
 
+    // If this chat's history was already loaded earlier this session (the
+    // MessageProvider is cached per-chatId and reused — common on web, where
+    // switching between side-by-side panes repeatedly reopens the same chat),
+    // isLoadingHistory is already false and _onMessagesChanged's loading->loaded
+    // transition check will never fire for it. This new scroll widget instance
+    // still needs its initial jump, so trigger it directly in that case.
+    if (!_lastLoadingHistory) {
+      _jumpToInitialPosition();
+    }
+
     // Mark this chat as one currently on screen, so a foreground push
     // notification for it can be suppressed (already visible live here).
     ActiveChatTracker.addActiveChat(widget.chatId);
+
+    // Clear this chat's unread badge in the chat list immediately — the server-side
+    // "mark as read" happens asynchronously (see MessageProvider), but the local
+    // badge shouldn't wait around for a future fetch/message to catch up.
+    //
+    // Deferred to right after this frame instead of called synchronously here:
+    // this runs from initState(), i.e. while a *different* widget (the one
+    // deciding to build this screen) is still mid-build. notifyListeners() fired
+    // in that window can reach a per-row rebuild that happens to occur later
+    // anyway, but a persistent always-mounted widget like the bottom-nav unread
+    // badge can miss it entirely until some unrelated later rebuild finally
+    // reconciles it — which looked like "the badge doesn't clear until I open
+    // another chat". Posting it after the frame avoids that build-phase race.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<ChatProvider>().markChatRead(widget.chatId);
+    });
+
+    // Actually sync the read state to the server the moment this chat is opened.
+    // MessageProvider only auto-marks-read for messages received live while this
+    // chat is the active one — it does NOT retroactively cover messages that
+    // arrived earlier while this chat was closed/backgrounded, and its history-load
+    // mark-read only fires once per session (the provider is cached and reused on
+    // reopen). Without this, reopening an already-cached chat wouldn't tell the
+    // server anything was read until some later unrelated event, which is what
+    // made cross-session/cross-browser unread sync look delayed.
+    ApiService.markChatMessagesRead(widget.chatId);
 
     // Whether opened via a notification tap or directly through the app, its
     // messages are read the moment this screen is on screen — clear any
@@ -166,7 +214,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       Navigator.of(context).popUntil((route) => route.isFirst);
       HomeScreen.homeKey.currentState?.switchToChatsTab();
       widget.onClose?.call();
-      SnackBarHelper.showWithMessenger(messenger, '${widget.contactName} removed you as a friend.');
+      SnackBarHelper.showWithMessenger(messenger, '$_displayName removed you as a friend.');
     };
     SocketService.on(SocketEvents.friendRemoved, _onFriendRemoved);
 
@@ -186,6 +234,15 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     };
     SocketService.on(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
 
+    // Someone new joined this group; refresh the sender-name cache so their
+    // messages show their actual username instead of falling back to "Member".
+    _onGroupMemberAdded = (data) {
+      if (!mounted || !widget.isGroup) return;
+      if (data['chatId']?.toString() != widget.chatId) return;
+      _loadGroupMembers();
+    };
+    SocketService.on(SocketEvents.groupMemberAdded, _onGroupMemberAdded);
+
     // The group was renamed while this screen is open; update the AppBar title live.
     _onGroupRenamed = (data) {
       if (!mounted || !widget.isGroup) return;
@@ -193,6 +250,23 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       setState(() => _liveGroupName = data['name']?.toString());
     };
     SocketService.on(SocketEvents.groupRenamed, _onGroupRenamed);
+
+    // Someone changed their username while this chat is open — update the 1:1
+    // contact's live display name, or (in a group) that member's name used to
+    // label their messages, so nothing (title, sender labels, etc.) stays stale.
+    _onProfileUpdated = (data) {
+      if (!mounted) return;
+      final userId = data['userId']?.toString();
+      final newUsername = data['username']?.toString();
+      if (userId == null || newUsername == null) return;
+      if (!widget.isGroup) {
+        if (userId != widget.contactId) return;
+        setState(() => _liveContactName = newUsername);
+      } else if (_memberNames.containsKey(userId)) {
+        setState(() => _memberNames[userId] = newUsername);
+      }
+    };
+    SocketService.on(SocketEvents.profileUpdated, _onProfileUpdated);
 
     // Track which messages are actually on screen so we can show a "more
     // messages" pill whenever there's an unread message hidden below the fold.
@@ -203,7 +277,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     }
   }
 
-  Future<void> _loadGroupMembers() async {
+  Future<void> _loadGroupMembers({int attempt = 0}) async {
     try {
       final members = await ApiService.getGroupMembers(widget.chatId);
       if (!mounted) return;
@@ -214,7 +288,14 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
         };
       });
     } catch (e) {
-      // Non-fatal: sender labels just fall back to "Member" until this succeeds.
+      // Transient failures (e.g. a request racing with app/auth startup) would
+      // otherwise leave sender labels permanently stuck on "Member" for the
+      // whole chat session, since this is only ever called once from
+      // initState. Retry a few times with backoff before giving up.
+      if (!mounted || attempt >= 3) return;
+      await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+      if (!mounted) return;
+      await _loadGroupMembers(attempt: attempt + 1);
     }
   }
 
@@ -423,7 +504,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     final senderId = replyTo['sender_id']?.toString();
     if (senderId == _messageProvider.currentUserId) return 'You';
     if (widget.isGroup) return _memberNames[senderId] ?? 'Member';
-    return widget.contactName;
+    return _displayName;
   }
 
   void _sendMessage({String? mediaUrl, String mediaType = 'text'}) {
@@ -648,7 +729,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       builder: (context) => AlertDialog(
         title: const Text('Remove Friend'),
         content: Text(
-          'Remove ${widget.contactName} as a friend? This will remove the chat '
+          'Remove $_displayName as a friend? This will remove the chat '
           'for both of you. If you add each other again later, your message '
           'history will be there.',
         ),
@@ -686,7 +767,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Leave Group'),
-        content: Text('Leave "${widget.contactName}"? You will need a new invite to rejoin.'),
+        content: Text('Leave "$_displayName"? You will need a new invite to rejoin.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -735,7 +816,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     }
 
     final avatarUrl = profile['avatar_url']?.toString();
-    final username = profile['username']?.toString() ?? widget.contactName;
+    final username = profile['username']?.toString() ?? _displayName;
     final email = profile['email']?.toString() ?? '';
     final aboutMe = profile['about_me']?.toString();
 
@@ -815,8 +896,10 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     _messageProvider.removeListener(_onMessagesChanged);
     SocketService.off(SocketEvents.errorFeedback, _onErrorFeedback);
     SocketService.off(SocketEvents.friendRemoved, _onFriendRemoved);
+    SocketService.off(SocketEvents.groupMemberAdded, _onGroupMemberAdded);
     SocketService.off(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
     SocketService.off(SocketEvents.groupRenamed, _onGroupRenamed);
+    SocketService.off(SocketEvents.profileUpdated, _onProfileUpdated);
     _itemPositionsListener.itemPositions.removeListener(_handleItemPositionsChanged);
     _messageController.dispose();
     _searchController.dispose();
@@ -894,7 +977,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
               ],
             )
           : AppBar(
-              title: Text(_liveGroupName ?? widget.contactName, style: const TextStyle(fontSize: 16)),
+              title: Text(_displayName, style: const TextStyle(fontSize: 16)),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.search, color: Colors.white),
@@ -920,7 +1003,7 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
                         MaterialPageRoute(
                           builder: (_) => GroupInfoScreen(
                             chatId: widget.chatId,
-                            groupName: _liveGroupName ?? widget.contactName,
+                            groupName: _displayName,
                           ),
                         ),
                       ).then((_) {

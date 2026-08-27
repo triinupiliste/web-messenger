@@ -24,6 +24,12 @@ class MessageProvider with ChangeNotifier {
   bool _isRemoteUserTyping = false;
   bool _isLoadingHistory = true;
   String? _currentUserId;
+  // The socket generation (see SocketService.socketGeneration) our listeners are
+  // currently registered against; -1 means "not attached to anything yet". This
+  // provider is cached for the whole app session (see MessageProviderRegistry),
+  // so it must be able to re-attach if the underlying socket is ever replaced
+  // (e.g. a different user logs in within the same browser session).
+  int _attachedSocketGeneration = -1;
 
   // Poll detail cache, keyed by pollId (a message's media_url when its
   // media_type is 'poll'). Populated lazily by loadPoll() and kept fresh by
@@ -40,23 +46,41 @@ class MessageProvider with ChangeNotifier {
 
   Map<String, dynamic>? pollData(String pollId) => _polls[pollId];
 
-  // Stored so dispose() can unregister exactly these callbacks; otherwise reopening
-  // the same chat stacks duplicate listeners on the shared socket singleton.
-  late final void Function(dynamic) _onConnect;
-  late final void Function(dynamic) _onReceiveMessage;
-  late final void Function(dynamic) _onErrorFeedbackMarksFailed;
-  late final void Function(dynamic) _onUserTyping;
-  late final void Function(dynamic) _onMessageEdited;
-  late final void Function(dynamic) _onMessageDeleted;
-  late final void Function(dynamic) _onMessageStatusUpdated;
-  late final void Function(dynamic) _onPollUpdated;
+  // Stored so dispose()/re-attachment can unregister exactly these callbacks;
+  // otherwise reopening the same chat stacks duplicate listeners on the shared
+  // socket singleton. Not `final`: re-attaching onto a replaced socket recreates them.
+  late void Function(dynamic) _onConnect;
+  late void Function(dynamic) _onReceiveMessage;
+  late void Function(dynamic) _onErrorFeedbackMarksFailed;
+  late void Function(dynamic) _onUserTyping;
+  late void Function(dynamic) _onMessageEdited;
+  late void Function(dynamic) _onMessageDeleted;
+  late void Function(dynamic) _onMessageStatusUpdated;
+  late void Function(dynamic) _onPollUpdated;
+  late void Function(dynamic) _onProfileUpdated;
 
-  // Joins the chat room, registers all real-time listeners, and loads
+  // Joins the chat room and registers all real-time listeners, then loads
   // persisted history. Call once, right after construction.
   Future<void> init() async {
     // Catch up on read-receipts for messages that arrived while backgrounded
     // (deliberately not marked read then, since the user wasn't looking at them).
     AppLifecycleTracker.addForegroundListener(_onAppForegrounded);
+
+    ensureSocketListeners();
+
+    await _loadHistory();
+  }
+
+  // (Re-)joins the chat room and (re-)registers all real-time listeners against
+  // whichever socket is currently active. Safe — and cheap — to call repeatedly:
+  // it's a no-op unless the underlying socket has changed since we last attached
+  // (e.g. a different user logged in within this same app session, replacing the
+  // socket instance our listeners/room-membership were bound to). Called again
+  // by MessageProviderRegistry every time this cached provider is reused, since
+  // it's kept alive for the whole app session rather than recreated per chat open.
+  void ensureSocketListeners() {
+    if (_attachedSocketGeneration == SocketService.socketGeneration) return;
+    _detachSocketListeners();
 
     // socket.io-client buffers emits until connected, so no need to gate on `connected`—
     // doing so previously caused join/send calls to be silently dropped during reconnects.
@@ -94,9 +118,11 @@ class MessageProvider with ChangeNotifier {
           SocketService.updateMessageStatus(chatId, messageId, 'delivered');
         }
 
-        // Only mark 'read' if the app is actually foregrounded right now — this screen
-        // can stay mounted while backgrounded, in which case it hasn't really been seen.
-        if (AppLifecycleTracker.isForeground) {
+        // Only mark 'read' if this chat is actually the one on screen right now —
+        // being foregrounded in general isn't enough, since this screen can stay
+        // mounted (and its socket listeners live) while a different chat/tab is
+        // what's actually visible, in which case this message hasn't really been seen.
+        if (AppLifecycleTracker.isForeground && ActiveChatTracker.isChatActive(chatId)) {
           // Tell the backend immediately instead of waiting for this screen to reopen,
           // otherwise the chat list shows it as unread again once its count is re-fetched.
           ApiService.markChatMessagesRead(chatId);
@@ -176,19 +202,53 @@ class MessageProvider with ChangeNotifier {
     };
     SocketService.on(SocketEvents.pollUpdated, _onPollUpdated);
 
-    await _loadHistory();
+    // A participant's username changed. Poll voter lists are resolved fresh
+    // from the server on every fetch, so an already-cached poll just needs to
+    // be re-fetched to pick up the new name — cheaper and simpler than trying
+    // to figure out which specific cached poll(s) that user actually voted on.
+    _onProfileUpdated = (_) {
+      for (final pollId in _polls.keys.toList()) {
+        _refreshPoll(pollId);
+      }
+    };
+    SocketService.on(SocketEvents.profileUpdated, _onProfileUpdated);
+
+    _attachedSocketGeneration = SocketService.socketGeneration;
+  }
+
+  // Unregisters from whatever socket generation we were previously attached to
+  // (safe no-op the first time, before anything has ever been registered).
+  void _detachSocketListeners() {
+    if (_attachedSocketGeneration == -1) return;
+    SocketService.off(SocketEvents.connect, _onConnect);
+    SocketService.off(SocketEvents.receiveMessage, _onReceiveMessage);
+    SocketService.off(SocketEvents.errorFeedback, _onErrorFeedbackMarksFailed);
+    SocketService.off(SocketEvents.userTyping, _onUserTyping);
+    SocketService.off(SocketEvents.messageEdited, _onMessageEdited);
+    SocketService.off(SocketEvents.messageDeleted, _onMessageDeleted);
+    SocketService.off(SocketEvents.messageStatusUpdated, _onMessageStatusUpdated);
+    SocketService.off(SocketEvents.pollUpdated, _onPollUpdated);
+    SocketService.off(SocketEvents.profileUpdated, _onProfileUpdated);
   }
 
   // Fetches a poll's live detail (question, options, tallies) if not already
   // cached; called by the poll bubble the first time it's rendered.
   Future<void> loadPoll(String pollId) async {
     if (_polls.containsKey(pollId)) return;
+    await _refreshPoll(pollId);
+  }
+
+  // Unconditionally (re-)fetches a poll's detail and updates the cache —
+  // shared by loadPoll() (first load) and the profile_updated handler above
+  // (refreshing an already-cached poll so voter names stay current).
+  Future<void> _refreshPoll(String pollId) async {
     try {
       final poll = await ApiService.getPoll(pollId);
       _polls[pollId] = poll;
       notifyListeners();
     } catch (_) {
-      // Left uncached — the bubble stays in its loading state and can retry.
+      // Left as-is (possibly uncached, or stale) — the bubble stays in its
+      // loading state or shows the previous data, and can retry later.
     }
   }
 
@@ -341,6 +401,10 @@ class MessageProvider with ChangeNotifier {
   }
 
   void _onAppForegrounded() {
+    // Only this chat's own re-foreground matters if it's actually the one on
+    // screen — otherwise every chat ever opened this session would get marked
+    // read the instant the app/tab regains focus, regardless of what's visible.
+    if (!ActiveChatTracker.isChatActive(chatId)) return;
     ApiService.markChatMessagesRead(chatId);
     PushNotificationService.cancelForChat(chatId);
   }
@@ -348,14 +412,7 @@ class MessageProvider with ChangeNotifier {
   @override
   void dispose() {
     AppLifecycleTracker.removeForegroundListener(_onAppForegrounded);
-    SocketService.off(SocketEvents.connect, _onConnect);
-    SocketService.off(SocketEvents.receiveMessage, _onReceiveMessage);
-    SocketService.off(SocketEvents.errorFeedback, _onErrorFeedbackMarksFailed);
-    SocketService.off(SocketEvents.userTyping, _onUserTyping);
-    SocketService.off(SocketEvents.messageEdited, _onMessageEdited);
-    SocketService.off(SocketEvents.messageDeleted, _onMessageDeleted);
-    SocketService.off(SocketEvents.messageStatusUpdated, _onMessageStatusUpdated);
-    SocketService.off(SocketEvents.pollUpdated, _onPollUpdated);
+    _detachSocketListeners();
     _typingTimer?.cancel();
     for (final timer in _pendingSendTimers.values) {
       timer.cancel();
