@@ -59,9 +59,32 @@ class HomeScreenState extends State<HomeScreen> {
   //
   // On web, more than one chat can be open side by side at once (browser-tab-like);
   // on mobile this list is never allowed to hold more than one entry, keeping the
-  // original single-detail-pane behavior unchanged there.
+  // original single-detail-pane behavior unchanged there. This is an absolute upper
+  // bound only — the actual number of panes shown at once is further limited by
+  // _maxPanesFor() so panes are never squeezed down to an overlapping/unusable size.
   static const _maxOpenChatsOnWeb = 3;
+
+  // Narrower than this and a single chat pane's app bar (contact name + search/menu/
+  // close buttons) and composer row (gallery/poll/text field/record/send buttons)
+  // start clipping or overlapping — so a new pane is never opened side by side if
+  // it wouldn't have at least this much room.
+  static const _minChatPaneWidth = 420.0;
+
+  // Chat list column width + its divider, subtracted from the total width
+  // before figuring out how many chat panes fit in what's left.
+  static const _chatListColumnWidth = 361.0;
+
   final List<_OpenChat> _openChats = [];
+
+  // How many chat panes can actually fit side by side in the given total
+  // available width, so panes are never squeezed down to an unusable size.
+  // Always at least 1 (once already in the wide split-pane layout there's
+  // always room for a single full-width pane), capped by _maxOpenChatsOnWeb.
+  int _maxPanesFor(double totalWidth) {
+    final availableForPanes = totalWidth - _chatListColumnWidth;
+    final panes = (availableForPanes / _minChatPaneWidth).floor();
+    return panes.clamp(1, _maxOpenChatsOnWeb);
+  }
 
   void _selectChat(String chatId, String contactId, String contactName, bool isGroup) {
     setState(() {
@@ -81,9 +104,11 @@ class HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      // Web: keep adding side-by-side panes, evicting the oldest once the cap
-      // is hit so panes don't get squeezed down to unreadable widths.
-      if (_openChats.length >= _maxOpenChatsOnWeb) {
+      // Web: keep adding side-by-side panes, evicting the oldest once as many
+      // panes as currently fit are already open, so panes don't get squeezed
+      // down to unreadable/overlapping widths.
+      final maxPanes = _maxPanesFor(MediaQuery.sizeOf(context).width);
+      while (_openChats.length >= maxPanes) {
         _openChats.removeAt(0);
       }
       _openChats.add(newChat);
@@ -101,6 +126,32 @@ class HomeScreenState extends State<HomeScreen> {
       setState(() => _currentIndex = _chatsTabIndex);
     }
     context.read<ChatProvider>().fetchChats();
+  }
+
+  // Opens a chat from outside the Chats tab (e.g. "Send Message" on a search
+  // result) the same way selecting it from the chat list itself would: switches
+  // to the Chats tab first so it never looks like an overlay on top of the
+  // current screen. On the wide split-pane layout the chat opens side by side
+  // with any other already-open chats (see _selectChat); on narrow layouts
+  // there's no split pane to open it in, so it's pushed as a normal full-screen route.
+  void openChat(String chatId, String contactId, String contactName, bool isGroup) {
+    switchToChatsTab();
+    final isWide = MediaQuery.sizeOf(context).width >= _wideLayoutBreakpoint;
+    if (isWide) {
+      _selectChat(chatId, contactId, contactName, isGroup);
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatRoomScreen(
+          chatId: chatId,
+          contactId: contactId,
+          contactName: contactName,
+          isGroup: isGroup,
+        ),
+      ),
+    );
   }
 
   // A getter (not a field) so it builds fresh widget instances each time: IndexedStack
@@ -155,6 +206,24 @@ class HomeScreenState extends State<HomeScreen> {
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= _wideLayoutBreakpoint;
         final showChatsSplitPane = isWide && _currentIndex == _chatsTabIndex;
+
+        // If the window shrank enough that not all currently open panes fit
+        // anymore, trim the oldest ones down to what actually fits. Deferred
+        // to after this frame since it's not safe to call setState mid-build.
+        if (showChatsSplitPane) {
+          final maxPanes = _maxPanesFor(constraints.maxWidth);
+          if (_openChats.length > maxPanes) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              setState(() {
+                while (_openChats.length > maxPanes) {
+                  _openChats.removeAt(0);
+                }
+              });
+            });
+          }
+        }
+
         return Scaffold(
           body: Row(
             children: [
@@ -176,6 +245,7 @@ class HomeScreenState extends State<HomeScreen> {
       },
     );
   }
+
 
   // Wide-screen-only layout for the Chats tab: the chat list stays visible in
   // a fixed-width left column while the selected chat(s) open directly in the

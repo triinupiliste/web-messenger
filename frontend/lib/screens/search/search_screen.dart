@@ -11,7 +11,7 @@ import '../../utils/json_utils.dart';
 import '../../utils/snackbar_helper.dart';
 import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/user_avatar.dart';
-import '../chat/chat_room_screen.dart';
+import '../home/home_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   final Future<void> Function()? onInviteSent;
@@ -216,15 +216,11 @@ class _SearchScreenState extends State<SearchScreen> {
             ? null
             : () {
                 FocusScope.of(context).unfocus();
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ChatRoomScreen(
-                      chatId: user.chatId!,
-                      contactId: user.id,
-                      contactName: displayName,
-                    ),
-                  ),
+                HomeScreen.homeKey.currentState?.openChat(
+                  user.chatId!,
+                  user.id,
+                  displayName,
+                  false,
                 );
               },
         child: const Text('Send Message'),
