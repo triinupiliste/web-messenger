@@ -5,7 +5,7 @@ FROM debian:latest AS build-env
 ARG SERVER_BASE_URL
 
 # Install system dependencies required by Flutter
-RUN apt-get update && apt-get install -y curl git wget unzip libgconf-2-4 gdb libstdc++6 libglu1-mesa fonts-droid-fallback lib32stdc++6 python3
+RUN apt-get update && apt-get install -y curl git wget unzip gdb libstdc++6 libglu1-mesa fonts-droid-fallback lib32stdc++6 python3
 RUN apt-get clean
 
 # Clone the Flutter SDK (stable channel)
