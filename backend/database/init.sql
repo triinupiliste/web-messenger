@@ -30,7 +30,17 @@ CREATE TABLE profiles (
     about_me TEXT -- Stored as encrypted text payload
 );
 
--- 3. Invites Table (Handles Chat Invitations — both 1:1 friend invites and
+-- 3. Chats Table (Base entity for conversations — 1:1 or group). Created before
+-- Invites below since invites.chat_id references it.
+CREATE TABLE chats (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    is_group BOOLEAN NOT NULL DEFAULT FALSE,
+    name TEXT, -- Group display name, stored as encrypted text payload. NULL for 1:1 chats.
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL, -- Group creator/owner; NULL for 1:1 chats
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Invites Table (Handles Chat Invitations — both 1:1 friend invites and
 -- invitations to join an existing group chat)
 CREATE TABLE invites (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -38,15 +48,6 @@ CREATE TABLE invites (
     receiver_id UUID REFERENCES users(id) ON DELETE CASCADE,
     status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'accepted', 'declined'
     chat_id UUID REFERENCES chats(id) ON DELETE CASCADE, -- NULL for a 1:1 friend invite; set for a group invite (join this chat on accept)
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 4. Chats Table (Base entity for conversations — 1:1 or group)
-CREATE TABLE chats (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    is_group BOOLEAN NOT NULL DEFAULT FALSE,
-    name TEXT, -- Group display name, stored as encrypted text payload. NULL for 1:1 chats.
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL, -- Group creator/owner; NULL for 1:1 chats
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
