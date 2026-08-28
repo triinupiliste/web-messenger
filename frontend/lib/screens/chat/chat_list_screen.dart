@@ -402,9 +402,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
               );
 
               // Web has no swipe gestures, so archive/delete are offered via a
-              // hover-revealed menu button in the row's top-right corner instead
-              // (mirroring the message bubble's web hover-menu pattern). Mobile
-              // keeps the original swipe-to-archive/swipe-to-delete behavior.
+              // menu button in the row's top-right corner instead (mirroring the
+              // message bubble's web hover-menu pattern). Mobile keeps the
+              // original swipe-to-archive/swipe-to-delete behavior.
+              //
+              // The button is always mounted (not conditionally shown only on
+              // hover) — mounting/unmounting it exactly as the pointer lands on
+              // it caused clicks to sometimes miss it entirely, since it wasn't
+              // in the widget tree yet when the click's hit-test ran. It's just
+              // faded out until hovered instead, which keeps it clickable.
               if (kIsWeb) {
                 final isHovered = _hoveredChatIds.contains(chatId);
                 return MouseRegion(
@@ -414,13 +420,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     clipBehavior: Clip.none,
                     children: [
                       content,
-                      if (isHovered)
-                        Positioned(
-                          top: 0,
-                          bottom: 0,
-                          right: 18,
-                          child: Center(child: _buildChatMenuButton(chatProvider, chatId, isArchived)),
+                      Positioned(
+                        top: 0,
+                        bottom: 0,
+                        right: 18,
+                        child: Center(
+                          child: AnimatedOpacity(
+                            opacity: isHovered ? 1 : 0,
+                            duration: const Duration(milliseconds: 120),
+                            child: _buildChatMenuButton(chatProvider, chatId, isArchived),
+                          ),
                         ),
+                      ),
                     ],
                   ),
                 );

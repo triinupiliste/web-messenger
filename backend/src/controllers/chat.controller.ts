@@ -22,6 +22,9 @@ export class ChatController {
             const { isArchived } = req.body;
 
             await ChatRepository.setChatArchivedStatus(chatId, userId, isArchived);
+            // Let this same account's other active sessions (e.g. archiving on the
+            // phone while the browser is open) live-update their chat list.
+            getIO()?.to(userId).emit('chat_list_updated');
             res.status(200).json({ message: `Chat ${isArchived ? 'archived' : 'unarchived'} successfully.` });
         } catch (error) {
             res.status(500).json({ error: 'Failed to update chat archive state.' });
@@ -35,6 +38,7 @@ export class ChatController {
             const { isMuted } = req.body;
 
             await ChatRepository.setChatMutedStatus(chatId, userId, isMuted);
+            getIO()?.to(userId).emit('chat_list_updated');
             res.status(200).json({ message: `Chat ${isMuted ? 'muted' : 'unmuted'} successfully.` });
         } catch (error) {
             res.status(500).json({ error: 'Failed to update chat mute state.' });
@@ -48,6 +52,7 @@ export class ChatController {
             const { isDeleted } = req.body;
 
             await ChatRepository.setChatDeletedStatus(chatId, userId, isDeleted);
+            getIO()?.to(userId).emit('chat_list_updated');
             res.status(200).json({ message: `Chat ${isDeleted ? 'deleted' : 'restored'} successfully.` });
         } catch (error) {
             res.status(500).json({ error: 'Failed to update chat delete state.' });
@@ -225,7 +230,12 @@ export class ChatController {
             await ChatRepository.removeParticipant(chatId, targetUserId);
 
             getIO()?.to(chatId).emit('group_member_removed', { chatId, userId: targetUserId, removedBySelf: isSelf });
-            getIO()?.to(targetUserId).emit('group_member_removed', { chatId, userId: targetUserId, removedBySelf: isSelf });
+            getIO()?.to(targetUserId).emit('group_member_removed', {
+                chatId,
+                userId: targetUserId,
+                removedBySelf: isSelf,
+                chatName: chat.name,
+            });
 
             res.status(200).json({ message: isSelf ? 'Left the group.' : 'Member removed.' });
         } catch (error) {

@@ -219,17 +219,17 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
 
     // If we're removed from (or leave) this group from another device, or the
     // owner removes us, bounce back to the chat list instead of leaving a dead
-    // conversation on screen.
+    // conversation on screen. The "you were removed" SnackBar itself is shown
+    // globally by HomeScreenState (so it also appears when this chat room
+    // isn't the one currently open) — don't duplicate it here.
     _onGroupMemberRemoved = (data) {
       if (!mounted || !widget.isGroup) return;
       if (data['chatId']?.toString() != widget.chatId) return;
       final userId = _messageProvider.currentUserId;
       if (userId == null || data['userId']?.toString() != userId) return;
-      final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).popUntil((route) => route.isFirst);
       HomeScreen.homeKey.currentState?.switchToChatsTab();
       widget.onClose?.call();
-      SnackBarHelper.showWithMessenger(messenger, 'You are no longer a member of this group.');
     };
     SocketService.on(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
 

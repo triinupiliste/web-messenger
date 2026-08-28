@@ -1,9 +1,12 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../constants/socket_events.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/invite_provider.dart';
+import '../../services/socket_service.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/snackbar_helper.dart';
 import '../chat/chat_list_screen.dart';
 import '../chat/chat_room_screen.dart';
 import '../invites/invites_screen.dart';
@@ -75,6 +78,36 @@ class HomeScreenState extends State<HomeScreen> {
   static const _chatListColumnWidth = 361.0;
 
   final List<_OpenChat> _openChats = [];
+
+  late final void Function(dynamic) _onGroupMemberRemoved;
+
+  @override
+  void initState() {
+    super.initState();
+    // Notifies the user if the group owner removes them while they're
+    // anywhere else in the app (not just while that chat room is open) —
+    // otherwise the chat just silently vanishes from the list.
+    _onGroupMemberRemoved = (data) {
+      if (!mounted) return;
+      if (data['removedBySelf'] == true) return;
+      final myUserId = context.read<ChatProvider>().currentUserId;
+      if (myUserId == null || data['userId']?.toString() != myUserId) return;
+      final chatName = data['chatName']?.toString();
+      SnackBarHelper.show(
+        context,
+        chatName != null && chatName.isNotEmpty
+            ? 'You were removed from "$chatName".'
+            : 'You were removed from a group.',
+      );
+    };
+    SocketService.on(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
+  }
+
+  @override
+  void dispose() {
+    SocketService.off(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
+    super.dispose();
+  }
 
   // How many chat panes can actually fit side by side in the given total
   // available width, so panes are never squeezed down to an unusable size.

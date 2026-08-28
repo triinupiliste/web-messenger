@@ -33,9 +33,11 @@ class ChatProvider with ChangeNotifier {
   late void Function(dynamic) _onGroupMemberRemoved;
   late void Function(dynamic) _onGroupRenamed;
   late void Function(dynamic) _onConnect;
+  late void Function(dynamic) _onChatListUpdated;
 
   List<ChatModel> get chats => _chats;
   bool get isLoading => _isLoading;
+  String? get currentUserId => _currentUserId;
 
   // Total unread message count across all chats, used for the badge on the
   // bottom nav's Chats icon.
@@ -233,6 +235,12 @@ class ChatProvider with ChangeNotifier {
       };
       SocketService.on(SocketEvents.chatRead, _onChatRead);
 
+      // This account archived/unarchived, muted/unmuted, or deleted/restored a
+      // chat from another one of its own sessions — refresh so this session's
+      // chat list matches without needing a manual refresh/restart.
+      _onChatListUpdated = (_) => _refreshChatsQuietly();
+      SocketService.on(SocketEvents.chatListUpdated, _onChatListUpdated);
+
       // A contact changed their username/avatar; patch it into any chat we have with them.
       // Group chats always have an empty contactId, so this never matches a group by accident.
       _onProfileUpdated = (data) {
@@ -332,6 +340,7 @@ class ChatProvider with ChangeNotifier {
     SocketService.off(SocketEvents.groupMemberRemoved, _onGroupMemberRemoved);
     SocketService.off(SocketEvents.groupRenamed, _onGroupRenamed);
     SocketService.off(SocketEvents.connect, _onConnect);
+    SocketService.off(SocketEvents.chatListUpdated, _onChatListUpdated);
   }
 
   // Optimistically zeroes a chat's local unread badge the instant it's opened,
