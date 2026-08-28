@@ -27,6 +27,9 @@ const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
     '.wav': 'audio/wav',
     '.aac': 'audio/aac',
     '.ogg': 'audio/ogg',
+    // Browser-recorded voice messages (Opus-in-WebM) — named '.weba' rather
+    // than '.webm' so it isn't mistaken for a video and sent through ffmpeg.
+    '.weba': 'audio/webm',
 };
 
 export class MediaController {

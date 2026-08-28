@@ -147,6 +147,11 @@ export class AuthController {
                 { expiresIn: '7d' },
             );
 
+            // Lets any of this account's other already-connected devices (e.g. the
+            // mobile app while the user logs in on web) live-update their "Active
+            // sessions" list instead of requiring a manual refresh.
+            getIO()?.in(user.id).emit('sessions_updated');
+
             res.status(200).json({
                 message: 'Login successful',
                 token,
@@ -365,6 +370,9 @@ export class AuthController {
                     message: 'You were logged out of this device.',
                 });
                 io.in(`session:${sessionId}`).disconnectSockets(true);
+                // Lets this account's other devices live-update their "Active sessions"
+                // list to drop the one that was just logged out.
+                io.in(req.user!.userId).emit('sessions_updated');
             }
 
             res.status(200).json({ message: 'That device has been logged out.' });
@@ -381,6 +389,9 @@ export class AuthController {
         try {
             if (req.user?.sessionId) {
                 await SessionRepository.revoke(req.user.sessionId, req.user.userId);
+                // Lets this account's other devices live-update their "Active sessions"
+                // list to drop this one.
+                getIO()?.in(req.user.userId).emit('sessions_updated');
             }
             res.status(200).json({ message: 'Logged out.' });
         } catch (error) {
