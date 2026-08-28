@@ -1,21 +1,14 @@
-import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import multer from 'multer';
 import { Request, Response, NextFunction } from 'express';
 import { UPLOAD_SIZE_LIMIT_BYTES, AVATAR_SIZE_LIMIT_BYTES } from '../config/constants';
 
-export const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
-
-if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
-
 export function generateStoredFilename(originalName: string): string {
     return `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${path.extname(originalName)}`;
 }
 
-// Buffers in memory; files are encrypted before disk write (see MediaController).
+// Buffers in memory; files are encrypted, then uploaded to R2 (see MediaController) — never touch local disk.
 export const uploadMedia = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: UPLOAD_SIZE_LIMIT_BYTES },

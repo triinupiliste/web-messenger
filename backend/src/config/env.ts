@@ -1,6 +1,6 @@
 // Fail fast on a missing secret instead of falling back to an insecure
 // default (previously broke decryption on restart / allowed forged JWTs).
-function requireEnv(name: string): string {
+export function requireEnv(name: string): string {
     const value = process.env[name];
     if (!value) {
         throw new Error(

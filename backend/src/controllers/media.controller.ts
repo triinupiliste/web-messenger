@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import fs from 'fs';
 import path from 'path';
-import { UPLOAD_DIR, generateStoredFilename } from '../middleware/upload.middleware';
+import { generateStoredFilename } from '../middleware/upload.middleware';
+import { uploadObject, downloadObject } from '../config/storage';
 import { encryptBuffer, decryptBuffer } from '../utils/encryption.util';
 import { compressVideo } from '../utils/video.util';
 import { logger } from '../utils/logger.util';
@@ -68,10 +68,10 @@ export class MediaController {
             return;
         }
 
-        // Encrypt the raw file bytes before they ever touch disk.
+        // Encrypt the raw file bytes before they ever touch storage.
         const filename = generateStoredFilename(originalName);
         const encrypted = encryptBuffer(buffer);
-        await fs.promises.writeFile(path.join(UPLOAD_DIR, filename), encrypted);
+        await uploadObject(filename, encrypted);
 
         // Returned as a relative path, not a full URL — the host (e.g. an ngrok
         // tunnel) can change between restarts, which would break stored URLs otherwise.
@@ -91,9 +91,8 @@ export class MediaController {
             return;
         }
 
-        const filePath = path.join(UPLOAD_DIR, filename);
         try {
-            const encrypted = await fs.promises.readFile(filePath);
+            const encrypted = await downloadObject(filename);
             const decrypted = decryptBuffer(encrypted);
             const contentType = MIME_TYPES_BY_EXTENSION[path.extname(filename).toLowerCase()] || 'application/octet-stream';
             const totalSize = decrypted.length;
