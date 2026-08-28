@@ -38,7 +38,7 @@ button{background:linear-gradient(135deg,${BRAND.primary},${BRAND.primaryDark});
 
 export function verificationPage(title: string, message: string, successful: boolean): string {
     const icon = successful ? CHECK_ICON : ERROR_ICON;
-    return pageShell(title, `<div class="badge">${icon}</div><h1>${title}</h1><p>${message}</p><p>You may now return to Web Messenger.</p>`);
+    return pageShell(title, `<div class="badge">${icon}</div><h1>${title}</h1><p>${message}</p><p>You may now return to Web & Mobile Messenger.</p>`);
 }
 
 export function resetPasswordPage(rawToken: string, errorMessage?: string): string {
@@ -47,5 +47,5 @@ export function resetPasswordPage(rawToken: string, errorMessage?: string): stri
         ? `<div class="error-banner">${escapeHtml(errorMessage)}</div>`
         : '';
 
-    return pageShell('Reset password', `<div class="badge">${LOCK_ICON}</div><h1>Choose a new password</h1><p>Enter a new password for your Web Messenger account.</p>${errorBlock}<form method="post" action="/api/auth/reset-password"><input type="hidden" name="token" value="${safeToken}"><label for="password">New password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required><button type="submit">Reset password</button></form>`);
+    return pageShell('Reset password', `<div class="badge">${LOCK_ICON}</div><h1>Choose a new password</h1><p>Enter a new password for your Web & Mobile Messenger account.</p>${errorBlock}<form method="post" action="/api/auth/reset-password"><input type="hidden" name="token" value="${safeToken}"><label for="password">New password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required><button type="submit">Reset password</button></form>`);
 }

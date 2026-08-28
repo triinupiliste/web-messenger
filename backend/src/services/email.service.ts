@@ -39,7 +39,7 @@ async function sendMail({ to, subject, html, text }: SendMailOptions): Promise<B
         },
         body: JSON.stringify({
             sender: {
-                name: process.env.MAIL_FROM_NAME || 'Web Messenger',
+                name: process.env.MAIL_FROM_NAME || 'Web & Mobile Messenger',
                 email: fromEmail,
             },
             to: [{ email: to }],
@@ -67,7 +67,7 @@ export async function sendVerificationEmail({
 
     return sendMail({
         to,
-        subject: 'Verify your Web Messenger account',
+        subject: 'Verify your Web & Mobile Messenger account',
         text: `Hi ${username}, verify your account using this link: ${verifyUrl}`,
         html: `<p>Hi ${safeUsername},</p><p>Verify your account by clicking <a href="${verifyUrl}">this link</a>.</p><p>This link expires in 24 hours.</p>`,
     });
@@ -83,7 +83,7 @@ export async function sendPasswordResetEmail({
 
     return sendMail({
         to,
-        subject: 'Reset your Web Messenger password',
+        subject: 'Reset your Web & Mobile Messenger password',
         text: `Hi ${username}, reset your password using this link: ${resetUrl}`,
         html: `<p>Hi ${safeUsername},</p><p>Reset your password by clicking <a href="${resetUrl}">this link</a>.</p>`,
     });

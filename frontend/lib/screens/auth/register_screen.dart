@@ -79,7 +79,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 children: [
                   const AuthHeader(
                     icon: Icons.person_add_alt_1_rounded,
-                    title: 'Join Mobile Messenger',
+                    title: 'Join Web & Mobile Messenger',
                     subtitle: 'Create an account to start chatting with friends',
                   ),
                   const SizedBox(height: 8),

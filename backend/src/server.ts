@@ -41,7 +41,7 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/uploads/:filename', verifyMediaToken, MediaController.getMedia);
 
 app.get('/', (req, res) => {
-    res.status(200).json({ status: 'ok', message: 'Mobile Messenger API is running' });
+    res.status(200).json({ status: 'ok', message: 'Web & Mobile Messenger API is running' });
 });
 
 app.use('/api/auth', authRoutes);

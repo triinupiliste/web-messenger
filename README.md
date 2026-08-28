@@ -1,8 +1,8 @@
-# Web Messenger
+# Web & Mobile Messenger
 
 ## Introduction
 
-Web Messenger is a real-time, end-to-end chat application with both a Flutter Android client and a Flutter Web client, sharing one codebase. Both connect to the same Node.js, Express, Socket.IO, and PostgreSQL backend, hosted on Railway.
+Web & Mobile Messenger is a real-time, end-to-end chat application with both a Flutter Android client and a Flutter Web client, sharing one codebase. Both connect to the same Node.js, Express, Socket.IO, and PostgreSQL backend, hosted on Railway.
 
 Users can create accounts, verify their email addresses, search for and invite contacts, exchange text/image/video/audio messages, chat 1:1 or in groups, create and vote in polls, reply to and manage their own messages, and get push notifications for new messages and invitations. The backend is authoritative: it persists every message, encrypts sensitive data (including email addresses) at rest, compresses video server-side, and pushes real-time updates to connected clients through Socket.IO.
 
@@ -18,7 +18,8 @@ The web client reuses the Android app's codebase, with `kIsWeb`-gated adjustment
 - Message editing and deletion
 - 1:1 and group chats, with group creation and membership management
 - In-chat polls, with optional anonymous voting; votes can be changed or retracted at any time
-- Chat list sorted by most recent activity, with archive/unarchive and per-user delete (clears history from just your own view, like WhatsApp)
+- Chat list sorted by most recent activity, with archive/unarchive and per-user delete (clears history from just your own view, like WhatsApp); these actions, along with per-chat mute, stay in sync live across every session you're signed into (e.g. archiving a chat on your phone updates the browser instantly, with no refresh needed)
+- A live notification if a group owner removes you from a group, wherever you are in the app at the time
 - Push notifications for new messages and invitations, with per-chat mute
 - Selectable app themes (Sunset Coral, Calm Forest, Ocean Blue) plus a dedicated dark mode, with an elevated, consistent design (custom typography, cached/fade-in media, gradient avatars, richer empty states) across every screen
 - Voice messages show a live recording timer while held and a seek bar with elapsed/total time during playback
@@ -61,7 +62,7 @@ No Flutter, Node.js, database, Docker, ngrok, or local setup is needed to review
 2. Transfer it to the phone by USB, cloud storage, or email.
 3. On the phone, open **Files** and select `app-release.apk`.
 4. If Android asks, allow installation from this source.
-5. Tap **Install**, then open **Mobile Messenger**.
+5. Tap **Install**, then open **Web & Mobile Messenger**.
 
 **Requires:** Android phone and the APK. No development tools are required.
 
@@ -93,7 +94,7 @@ Use an Android emulator such as [NoxPlayer](https://www.bignox.com/) or another 
 1. Install and open the emulator.
 2. Drag `app-release.apk` into its window, or use its APK-install action.
 3. Accept the installation prompt.
-4. Launch **Mobile Messenger** inside the emulator.
+4. Launch **Web & Mobile Messenger** inside the emulator.
 
 **Requires:** A desktop computer, the emulator, and the APK. Flutter and Android Studio are not required.
 
@@ -121,6 +122,8 @@ Want to run your own backend instead of the hosted one? See [Developer Setup](#d
 - Archive or unarchive a chat from the chat list.
 - Delete a chat from the chat list — it's only removed from your own view; the other participant and their history are unaffected.
 - Mute or unmute notifications for an individual chat from its menu.
+- Archiving, deleting, and muting all sync live to your other signed-in sessions (e.g. phone and browser at once) via Socket.IO, without needing to refresh or reopen the app.
+- If a group owner removes you from a group, you get a live notification wherever you are in the app, and the chat disappears from your list automatically.
 - Edit or delete your own messages from the chat room, or swipe a message to reply to it.
 - Switch the app's theme (Sunset Coral, Calm Forest, or Ocean Blue), or toggle dark mode, from Profile → Settings.
 
@@ -169,7 +172,7 @@ APP_BASE_URL=http://localhost:5000/api
 
 BREVO_API_KEY=replace_with_your_brevo_api_key
 MAIL_FROM=verified-sender@example.com
-MAIL_FROM_NAME=Mobile Messenger
+MAIL_FROM_NAME=Web & Mobile Messenger
 ```
 
 `docker-compose.yml` supplies the remaining backend configuration (`DB_*`, `JWT_SECRET`, `ENCRYPTION_KEY`) as environment variables for local use. Replace `JWT_SECRET` and `ENCRYPTION_KEY` with your own strong values before any real deployment.
