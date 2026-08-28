@@ -22,8 +22,7 @@ export class ChatController {
             const { isArchived } = req.body;
 
             await ChatRepository.setChatArchivedStatus(chatId, userId, isArchived);
-            // Let this same account's other active sessions (e.g. archiving on the
-            // phone while the browser is open) live-update their chat list.
+            // Lets this account's other active sessions live-update their chat list.
             getIO()?.to(userId).emit('chat_list_updated');
             res.status(200).json({ message: `Chat ${isArchived ? 'archived' : 'unarchived'} successfully.` });
         } catch (error) {
@@ -102,18 +101,16 @@ export class ChatController {
             const chatId = req.params.chatId as string;
             const nowFullyRead = await MessageRepository.markChatMessagesRead(chatId, userId);
 
-            // Notify the other participant(s) in real time so their sent messages show as read.
+            // Notifies the other participant(s) so their sent messages show as read.
             getIO()?.to(chatId).emit('messages_read', { chatId, readerId: userId });
 
-            // Also notify the reader's OWN other sessions (e.g. the same account open in
-            // a second browser tab/window) so this chat's unread badge clears there too,
-            // instead of only updating locally in whichever session actually opened it.
+            // Also notifies the reader's own other sessions so this chat's unread
+            // badge clears there too.
             getIO()?.to(userId).emit('chat_read', { chatId });
 
-            // In a group chat a message only becomes fully 'read' once every other member
-            // has caught up (see markChatMessagesRead) — broadcast exactly which messages
-            // just crossed that line so senders' ticks update precisely, instead of
-            // flipping to "read" the moment just one of several recipients has seen it.
+            // In a group chat a message only becomes fully 'read' once every other
+            // member has caught up; broadcast exactly which messages crossed that
+            // line so senders' ticks update precisely.
             for (const msg of nowFullyRead) {
                 getIO()?.to(chatId).emit('message_status_updated', { messageId: msg.id, status: 'read' });
             }

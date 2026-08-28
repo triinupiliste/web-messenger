@@ -4,15 +4,11 @@ import 'dart:html' as html;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
-// Web implementation. image_cropper's web crop UI embeds a cropperjs
-// instance inside a Flutter Dialog via HtmlElementView, which has multiple
-// unresolved upstream bugs — the dialog rendering blank/transparent with no
-// interactive controls, and crop handles not being selectable at all
-// (github.com/hnvn/flutter_image_cropper issues #615, #616, #621). Rather
-// than exposing a broken manual crop UI, this auto-crops the picked image to
-// a centered square and re-encodes it as JPEG via an offscreen <canvas> —
-// the same output shape the interactive cropper would have produced, just
-// without requiring (currently broken) manual adjustment on web.
+// Web implementation. image_cropper's web crop UI has multiple unresolved
+// upstream bugs (blank dialog, unselectable crop handles — see
+// hnvn/flutter_image_cropper issues #615, #616, #621), so instead of a broken
+// manual crop UI, this auto-crops the image to a centered square and
+// re-encodes it as JPEG via an offscreen <canvas>.
 Future<Uint8List?> cropAvatarImage(BuildContext context, String sourcePath) async {
   final image = html.ImageElement();
   final loaded = Completer<void>();

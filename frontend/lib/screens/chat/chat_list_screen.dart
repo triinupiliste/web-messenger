@@ -13,10 +13,9 @@ import '../search/search_screen.dart';
 import 'chat_room_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
-  // When set (wide-screen split-pane layout only), tapping a chat calls
-  // onChatSelected to update the detail pane(s) in place instead of pushing a
-  // full-screen ChatRoomScreen route; openChatIds highlights every row that
-  // currently has its own open pane (on web, more than one can be open at once).
+  // When set (split-pane layout only), tapping a chat calls onChatSelected to
+  // update the detail pane in place instead of pushing a full-screen route;
+  // openChatIds highlights rows with their own open pane.
   final bool splitPaneMode;
   final Set<String> openChatIds;
   final void Function(String chatId, String contactId, String contactName, bool isGroup)? onChatSelected;
@@ -35,8 +34,8 @@ class ChatListScreen extends StatefulWidget {
 class _ChatListScreenState extends State<ChatListScreen> {
   bool _showArchived = false;
   String? _currentUserId;
-  // Web-only: chat rows currently hovered, to reveal their menu button (see
-  // _buildChatMenuButton). Mobile uses swipe gestures instead, so this stays empty there.
+  // Web-only: chat rows currently hovered, to reveal their menu button.
+  // Mobile uses swipe gestures instead, so this stays empty there.
   final Set<String> _hoveredChatIds = {};
 
   @override
@@ -60,10 +59,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
-  // Chat-list-style relative timestamp for the last message, mirroring the
-  // common convention: just the time for today, "Yesterday" for yesterday,
-  // the shortened weekday within the last week, the date without a year for
-  // anything older this year, and the date with a year for previous years.
+  // Relative timestamp for the last message: time for today, "Yesterday",
+  // weekday within the last week, date (with year if not this year) otherwise.
   String _formatLastMessageTime(DateTime? time) {
     if (time == null) return '';
     final local = time.toLocal();
@@ -134,9 +131,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
     Future.delayed(const Duration(seconds: 5), controller.close);
   }
 
-  // Web has no swipe gestures, so a small hover-revealed button offers the
-  // same archive/delete actions instead (mirrors message_bubble.dart's web
-  // hover-menu pattern).
+  // Web has no swipe gestures, so a hover-revealed button offers the same
+  // archive/delete actions instead.
   Widget _buildChatMenuButton(ChatProvider chatProvider, String chatId, bool isArchived) {
     return Material(
       color: AppColors.surface,
@@ -401,16 +397,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 ),
               );
 
-              // Web has no swipe gestures, so archive/delete are offered via a
-              // menu button in the row's top-right corner instead (mirroring the
-              // message bubble's web hover-menu pattern). Mobile keeps the
-              // original swipe-to-archive/swipe-to-delete behavior.
-              //
-              // The button is always mounted (not conditionally shown only on
-              // hover) — mounting/unmounting it exactly as the pointer lands on
-              // it caused clicks to sometimes miss it entirely, since it wasn't
-              // in the widget tree yet when the click's hit-test ran. It's just
-              // faded out until hovered instead, which keeps it clickable.
+              // Web offers archive/delete via a hover menu button; mobile keeps
+              // swipe gestures. The button stays always-mounted and just fades
+              // with hover (rather than mounting only on hover), since
+              // mount-on-hover caused clicks to sometimes miss it.
               if (kIsWeb) {
                 final isHovered = _hoveredChatIds.contains(chatId);
                 return MouseRegion(

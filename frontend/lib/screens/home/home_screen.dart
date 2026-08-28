@@ -13,9 +13,8 @@ import '../invites/invites_screen.dart';
 import '../search/search_screen.dart';
 import '../profile/profile_screen.dart';
 
-// One chat currently shown in its own pane in the wide-screen split-pane
-// layout. On web, several of these can be open side by side at once; on
-// mobile/narrow layouts there is never more than one.
+// One chat currently shown in its own pane in the split-pane layout. On web
+// several can be open side by side; on mobile there's never more than one.
 class _OpenChat {
   final String chatId;
   final String contactId;
@@ -33,8 +32,8 @@ class _OpenChat {
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
-  // Lets screens pushed on top of HomeScreen (e.g. ChatRoomScreen) switch back to a
-  // specific tab once popped, regardless of which tab was active before navigating away.
+  // Lets screens pushed on top of HomeScreen (e.g. ChatRoomScreen) switch back
+  // to a specific tab once popped.
   static final GlobalKey<HomeScreenState> homeKey = GlobalKey<HomeScreenState>();
 
   @override
@@ -46,31 +45,25 @@ class HomeScreenState extends State<HomeScreen> {
   static const _invitesTabIndex = 1;
   static const _profileTabIndex = 3;
 
-  // Below this width the app keeps its original mobile bottom-nav layout;
-  // at/above it, a side NavigationRail is used instead (better use of space
-  // on web/desktop/tablet, and the first step towards a wide-screen,
-  // multi-pane layout).
+  // Below this width the app keeps the mobile bottom-nav layout; at/above it,
+  // a side NavigationRail is used instead.
   static const double _wideLayoutBreakpoint = 760;
 
   int _currentIndex = 0;
   final _profileKey = GlobalKey<ProfileScreenState>();
 
   // Wide-screen split-pane (Chats tab only): which chat(s) are shown in the
-  // detail pane(s) alongside the chat list. Empty means nothing selected yet
-  // (shows a placeholder). Lives here (not in ChatListScreen) so it survives
-  // switching to another tab and back.
+  // detail pane(s) alongside the chat list. Lives here (not in ChatListScreen)
+  // so it survives switching to another tab and back.
   //
-  // On web, more than one chat can be open side by side at once (browser-tab-like);
-  // on mobile this list is never allowed to hold more than one entry, keeping the
-  // original single-detail-pane behavior unchanged there. This is an absolute upper
-  // bound only — the actual number of panes shown at once is further limited by
-  // _maxPanesFor() so panes are never squeezed down to an overlapping/unusable size.
+  // On web, multiple chats can be open side by side (browser-tab-like); on
+  // mobile this list never holds more than one entry. This is only an upper
+  // bound — _maxPanesFor() further limits panes so they're never squeezed
+  // down to an unusable size.
   static const _maxOpenChatsOnWeb = 3;
 
-  // Narrower than this and a single chat pane's app bar (contact name + search/menu/
-  // close buttons) and composer row (gallery/poll/text field/record/send buttons)
-  // start clipping or overlapping — so a new pane is never opened side by side if
-  // it wouldn't have at least this much room.
+  // Below this width a chat pane's app bar and composer row start clipping,
+  // so a new pane is never opened unless it would have at least this much room.
   static const _minChatPaneWidth = 420.0;
 
   // Chat list column width + its divider, subtracted from the total width
@@ -84,9 +77,8 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Notifies the user if the group owner removes them while they're
-    // anywhere else in the app (not just while that chat room is open) —
-    // otherwise the chat just silently vanishes from the list.
+    // Notifies the user if a group owner removes them from anywhere in the
+    // app, not just while that chat room happens to be open.
     _onGroupMemberRemoved = (data) {
       if (!mounted) return;
       if (data['removedBySelf'] == true) return;
@@ -109,10 +101,8 @@ class HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // How many chat panes can actually fit side by side in the given total
-  // available width, so panes are never squeezed down to an unusable size.
-  // Always at least 1 (once already in the wide split-pane layout there's
-  // always room for a single full-width pane), capped by _maxOpenChatsOnWeb.
+  // How many chat panes fit side by side in the given width, capped by
+  // _maxOpenChatsOnWeb and always at least 1.
   int _maxPanesFor(double totalWidth) {
     final availableForPanes = totalWidth - _chatListColumnWidth;
     final panes = (availableForPanes / _minChatPaneWidth).floor();
@@ -162,11 +152,9 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   // Opens a chat from outside the Chats tab (e.g. "Send Message" on a search
-  // result) the same way selecting it from the chat list itself would: switches
-  // to the Chats tab first so it never looks like an overlay on top of the
-  // current screen. On the wide split-pane layout the chat opens side by side
-  // with any other already-open chats (see _selectChat); on narrow layouts
-  // there's no split pane to open it in, so it's pushed as a normal full-screen route.
+  // result), switching to the Chats tab first so it doesn't look like an
+  // overlay. Opens side by side on the wide split-pane layout, or as a pushed
+  // route on narrow layouts.
   void openChat(String chatId, String contactId, String contactName, bool isGroup) {
     switchToChatsTab();
     final isWide = MediaQuery.sizeOf(context).width >= _wideLayoutBreakpoint;
@@ -187,10 +175,9 @@ class HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // A getter (not a field) so it builds fresh widget instances each time: IndexedStack
-  // skips rebuilding a child if the exact same widget instance is passed again, which
-  // would stop background tabs from picking up theme changes from RestartWidget.
-  // `const` is deliberately omitted for the same reason.
+  // A getter (not a field) so IndexedStack always gets fresh widget instances
+  // — otherwise it skips rebuilding a child, which would stop background tabs
+  // from picking up theme changes from RestartWidget.
   List<Widget> get _screens => [
     ChatListScreen(),
     InvitesScreen(),
@@ -281,9 +268,8 @@ class HomeScreenState extends State<HomeScreen> {
 
 
   // Wide-screen-only layout for the Chats tab: the chat list stays visible in
-  // a fixed-width left column while the selected chat(s) open directly in the
-  // remaining space (as one or more side-by-side panes on web), instead of
-  // navigating away to a full-screen route.
+  // a fixed-width column while selected chat(s) open as side-by-side panes,
+  // instead of navigating to a full-screen route.
   Widget _buildChatsSplitPane() {
     return Row(
       children: [
@@ -305,11 +291,9 @@ class HomeScreenState extends State<HomeScreen> {
                       if (i > 0) const VerticalDivider(width: 1, thickness: 1),
                       Expanded(
                         child: ChatRoomScreen(
-                          // Forces a full remount (dispose + initState) when the
-                          // selection changes, since chatId/contactName aren't the
-                          // only state this screen owns (search box, group member
-                          // cache, etc.) — without this key Flutter would just patch
-                          // the existing element's widget config in place.
+                          // Forces a full remount when the selection changes, since
+                          // this screen owns state beyond chatId/contactName (search
+                          // box, member cache, etc.).
                           key: ValueKey(_openChats[i].chatId),
                           chatId: _openChats[i].chatId,
                           contactId: _openChats[i].contactId,

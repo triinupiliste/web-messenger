@@ -7,8 +7,8 @@ import '../config/server_config.dart';
 import 'storage_service.dart';
 
 // MultipartFile.fromBytes() doesn't infer content-type from a filename and
-// defaults to application/octet-stream, which the backend's avatar upload
-// endpoint rejects based on mimetype.
+// defaults to application/octet-stream, which the backend's upload endpoint
+// rejects based on mimetype.
 MediaType? _imageContentTypeForFilename(String filename) {
   final extension = filename.split('.').last.toLowerCase();
   switch (extension) {
@@ -22,9 +22,9 @@ MediaType? _imageContentTypeForFilename(String filename) {
   }
 }
 
-// Thrown when the backend reports this token is no longer the active session
-// (signed in on another device). Callers should log out locally instead of
-// showing a generic error.
+// Thrown when the backend reports this token's session was invalidated
+// (signed in elsewhere). Callers should log out locally instead of showing
+// a generic error.
 class SessionInvalidatedException implements Exception {
   final String message;
   SessionInvalidatedException(this.message);
@@ -40,8 +40,8 @@ class ApiService {
     'ngrok-skip-browser-warning': 'true',
   };
 
-  // Sent on login so the backend can label this device/browser in the
-  // account's "Active sessions" list (see multi-session support).
+  // Sent on login so the backend can label this device in the account's
+  // "Active sessions" list.
   static String get _currentPlatform => kIsWeb ? 'web' : 'mobile';
 
   static String get _currentDeviceName {
@@ -56,9 +56,8 @@ class ApiService {
     }
   }
 
-  // ngrok's free tier serves an HTML interstitial page to non-browser requests
-  // without this header, breaking JSON parsing. Exposed publicly so other
-  // services fetching media URLs directly can send it too.
+  // ngrok's free tier serves an HTML interstitial to non-browser requests
+  // without this header, breaking JSON parsing.
   static const Map<String, String> _ngrokHeader = ngrokHeader;
 
   static Future<Map<String, String>> _getHeaders() async {
@@ -70,10 +69,9 @@ class ApiService {
     };
   }
 
-  // Native media widgets (Image.network, VideoPlayerController, etc.) can't attach an
-  // Authorization header, so the token is appended as a query param instead. Backend
-  // stores media as paths relative to itself (host can change between ngrok restarts);
-  // old rows with a full absolute URL are left as-is.
+  // Native media widgets can't attach an Authorization header, so the token
+  // is appended as a query param instead. Old rows with a full absolute URL
+  // are left as-is.
   static String mediaUrl(String url) {
     final absoluteUrl = url.startsWith('http://') || url.startsWith('https://')
         ? url
@@ -393,10 +391,9 @@ class ApiService {
     );
   }
 
-  // Server decrypts each message before matching (content is encrypted with a
-  // random IV per message, so it can't be filtered in SQL). Returns matches in
-  // the same chronological order as getMessages, plus the true total match
-  // count (results may be truncated server-side for very common search terms).
+  // Server decrypts each message before matching (content uses a random IV
+  // per message, so it can't be filtered in SQL). Returns matches in
+  // chronological order plus the true total match count.
   static Future<Map<String, dynamic>> searchMessages(String chatId, String query) async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -507,9 +504,9 @@ class ApiService {
 
   // --- POLLS ---
 
-  // Creates the poll's DB rows and returns its detail (including the new pollId).
-  // The caller is still responsible for sending the actual chat message for it
-  // via the socket 'send_message' event (mediaType: 'poll', mediaUrl: pollId).
+  // Creates the poll's DB rows and returns its detail. Caller still needs to
+  // send the actual chat message via the socket 'send_message' event
+  // (mediaType: 'poll', mediaUrl: pollId).
   static Future<Map<String, dynamic>> createPoll(
     String chatId,
     String question,
@@ -588,13 +585,10 @@ class ApiService {
     );
   }
 
-  // Uploads a local media file (image, video, or voice note) and returns its
-  // publicly reachable URL so it can be sent as a message's mediaUrl.
-  //
-  // Takes raw bytes (rather than a dart:io File) so this works on Flutter web,
-  // where picked files only exist as blob: URLs that dart:io can't read.
-  // `filename` must keep the original extension — the backend derives both
-  // the stored file's extension and its served Content-Type from it.
+  // Uploads a local media file and returns its publicly reachable URL. Takes
+  // raw bytes rather than a dart:io File so this works on Flutter web, where
+  // picked files only exist as blob: URLs. `filename` must keep its original
+  // extension — the backend derives the stored extension/Content-Type from it.
   static Future<String> uploadMedia(Uint8List bytes, {required String filename}) async {
     final token = await StorageService.getToken();
     final request = http.MultipartRequest(
@@ -624,10 +618,9 @@ class ApiService {
     throw Exception(data['error'] ?? 'Failed to upload media.');
   }
 
-  // Uploads a profile picture. Unlike uploadMedia, the backend restricts this
-  // endpoint to JPEG/PNG and a 5MB limit. `bytes` are expected to already be
-  // JPEG-encoded (the cropper always outputs JPEG), so the content-type is
-  // fixed rather than guessed from a filename.
+  // Uploads a profile picture. Unlike uploadMedia, restricted to JPEG/PNG and
+  // a 5MB limit; `bytes` are expected to already be JPEG-encoded (the cropper
+  // always outputs JPEG).
   static Future<String> uploadAvatar(Uint8List bytes) async {
     final token = await StorageService.getToken();
     final request = http.MultipartRequest(

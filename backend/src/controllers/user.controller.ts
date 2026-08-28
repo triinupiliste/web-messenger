@@ -73,10 +73,7 @@ export class UserController {
             });
 
             // Let contacts and pending-invite partners see the new username/avatar
-            // live, without reopening the chat list/invites/search screens. Also
-            // notify this same account's other active sessions (e.g. phone app
-            // while editing from the browser) so their profile screen updates
-            // without needing a restart.
+            // live, plus this account's other active sessions.
             const [contactIds, invitePartnerIds] = await Promise.all([
                 ChatRepository.getContactIds(userId),
                 InviteRepository.getPendingInvitePartnerIds(userId),

@@ -37,9 +37,9 @@ class MediaSaveService {
       await tempFile.writeAsBytes(response.bodyBytes);
 
       if (mediaType == 'video') {
-        await Gal.putVideo(tempFile.path, album: 'Mobile Messenger');
+        await Gal.putVideo(tempFile.path, album: 'Web & Mobile Messenger');
       } else {
-        await Gal.putImage(tempFile.path, album: 'Mobile Messenger');
+        await Gal.putImage(tempFile.path, album: 'Web & Mobile Messenger');
       }
 
       await tempFile.delete();

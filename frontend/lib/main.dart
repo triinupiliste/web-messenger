@@ -43,11 +43,8 @@ void main() {
     // frame, so the app doesn't flash the default theme then swap.
     await ThemeService.loadSavedTheme();
 
-    // Firebase Cloud Messaging push notifications aren't wired up for the web
-    // build yet (that needs a separate Firebase Web App registration, VAPID
-    // key, and a service worker) — skip it there so startup doesn't throw.
-    // The web app still gets real-time updates via the socket connection
-    // while it's open; PushNotificationService.init() also no-ops on web.
+    // FCM push isn't wired up for web yet (needs a separate Firebase Web App +
+    // service worker); web still gets real-time updates via the socket while open.
     if (!kIsWeb) {
       await Firebase.initializeApp();
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
@@ -143,7 +140,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       ],
       child: MaterialApp(
         navigatorKey: PushNotificationService.navigatorKey,
-        title: 'Mobile Messenger',
+        title: 'Web & Mobile Messenger',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.theme,
         home: Consumer<AuthProvider>(

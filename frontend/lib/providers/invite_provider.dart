@@ -8,17 +8,16 @@ class InviteProvider with ChangeNotifier {
   List<dynamic> _incoming = [];
   List<dynamic> _outgoing = [];
   bool _isLoading = false;
-  // The socket generation (see SocketService.socketGeneration) our listeners are
-  // currently registered against; -1 means "not attached to anything yet".
+  // The socket generation (see SocketService.socketGeneration) our listeners
+  // are registered against; -1 means not attached yet.
   int _attachedSocketGeneration = -1;
 
-  // Incoming invite ids the user has already looked at (i.e. had the Invites
-  // tab open since they arrived). Drives the badge on the bottom nav icon.
+  // Incoming invite ids the user has already looked at. Drives the badge on
+  // the bottom nav icon.
   final Set<String> _seenInviteIds = {};
 
-  // Stored so dispose()/re-attachment can unregister exactly these callbacks.
-  // Not `final`: a different user logging in within the same app session gets a
-  // brand new underlying socket, so these get re-created and re-registered then.
+  // Stored so dispose()/re-attachment can unregister these exact callbacks.
+  // Not `final`: a different user logging in gets a new socket, recreating these.
   late void Function(dynamic) _onNewInvite;
   late void Function(dynamic) _onInviteResponded;
   late void Function(dynamic) _onProfileUpdated;
@@ -58,12 +57,8 @@ class InviteProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Listen globally so the Invites screen (and the nav badge) update the
-  // instant a new invite arrives or one of ours gets responded to, instead of
-  // only refreshing the next time the screen is opened.
-  // Safe to call repeatedly: it's a no-op unless the underlying socket has changed
-  // since we last attached (e.g. a different user logged in within this same app
-  // session, replacing the socket instance our listeners were bound to).
+  // Listens globally so the Invites screen and nav badge update instantly on
+  // new/responded invites. Cheap no-op unless the socket changed since attaching.
   void _initGlobalSocketListener() {
     if (_attachedSocketGeneration == SocketService.socketGeneration) return;
     _detachSocketListeners();

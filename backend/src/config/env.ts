@@ -29,10 +29,9 @@ export const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
     : DEFAULT_ALLOWED_ORIGINS;
 
-// Matches any localhost/127.0.0.1 origin regardless of port — outside of
-// production this lets `flutter run -d chrome` (which picks a random dev
-// server port on every run) talk to a locally-run backend without having to
-// add every port to ALLOWED_ORIGINS by hand. Never applied in production.
+// Matches any localhost/127.0.0.1 origin regardless of port, so `flutter run
+// -d chrome` (random dev port each run) can talk to a local backend without
+// adding every port to ALLOWED_ORIGINS by hand. Never applied in production.
 const LOCAL_DEV_ORIGIN_PATTERN = /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/;
 
 export function isOriginAllowed(origin: string | undefined): boolean {

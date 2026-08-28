@@ -4,9 +4,9 @@ import '../../providers/message_provider.dart';
 import '../../theme/app_colors.dart';
 
 // Renders a poll message inline in the chat: question, options with live vote
-// tallies, and tap-to-vote/retract interaction. Poll data itself (question,
-// options, tallies) isn't part of the message payload — it's fetched lazily
-// via MessageProvider.loadPoll() and kept live by the 'poll_updated' socket event.
+// tallies, and tap-to-vote/retract interaction. Poll data isn't part of the
+// message payload; it's fetched via MessageProvider.loadPoll() and kept live
+// by the 'poll_updated' socket event.
 class PollBubble extends StatefulWidget {
   final String pollId;
   final String fallbackQuestion;

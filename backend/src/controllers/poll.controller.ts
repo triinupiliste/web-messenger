@@ -9,11 +9,8 @@ const MAX_QUESTION_LENGTH = 300;
 const MAX_OPTION_LENGTH = 100;
 
 export class PollController {
-    // 'voted_by_me' is computed per-requester, so a single poll object can't be
-    // broadcast as-is to a whole chat room — every recipient would see whichever
-    // option the *acting* user (voter/closer) chose as their own checked option.
-    // Instead, fetch/emit a personalized copy of the poll to each participant's
-    // own room (joined as their userId in chat.socket.ts's 'connection' handler).
+    // 'voted_by_me' is per-requester, so a poll can't be broadcast as-is to a
+    // whole room — fetch/emit a personalized copy to each participant's own room.
     private static async broadcastPollUpdate(
         pollId: string,
         chatId: string,
@@ -31,10 +28,9 @@ export class PollController {
         }));
     }
 
-    // Creates the poll's own DB rows (question + options). The client then sends
-    // the actual chat message for it via the existing 'send_message' socket event
-    // (mediaType: 'poll', mediaUrl: the returned pollId) — reusing all of that
-    // event's existing broadcast/push/revive-chat logic instead of duplicating it here.
+    // Creates the poll's DB rows only; the client sends the actual chat message
+    // via 'send_message' (mediaType: 'poll', mediaUrl: pollId), reusing its
+    // existing broadcast/push/revive-chat logic.
     static async createPoll(req: Request, res: Response): Promise<void> {
         try {
             const userId = req.user!.userId;

@@ -15,11 +15,9 @@ class NotificationSettingsService {
 }
 
 // Tracks which chat(s) are currently open on screen, so a foreground push
-// notification for one of THEM can be suppressed (its messages are already
-// visible live via the socket) while other chats still notify. A set (not a
-// single id) is needed since the wide-screen split-pane layout can keep a
-// chat's screen mounted alongside the chat list, and a chat could in theory
-// be represented by more than one mounted screen at once.
+// notification for one of them can be suppressed while others still notify.
+// A set (not a single id) since the split-pane layout can keep more than one
+// chat screen mounted at once.
 class ActiveChatTracker {
   static final Set<String> _activeChatIds = {};
 
@@ -36,9 +34,8 @@ class ActiveChatTracker {
   }
 }
 
-// Tracks whether the app is currently foregrounded. ActiveChatTracker alone isn't
-// enough: a chat screen stays mounted while backgrounded, so anything treating
-// "chat is on screen" as "user is looking at it" must check this too.
+// Tracks whether the app is foregrounded. ActiveChatTracker alone isn't
+// enough since a chat screen stays mounted while backgrounded.
 class AppLifecycleTracker {
   static bool _isForeground = true;
 

@@ -16,12 +16,10 @@ class MediaSaveService {
     required String mediaType,
   }) async {
     try {
-      // An <a download> only forces a save (rather than the browser navigating
-      // the whole tab away to the resource) for same-origin URLs — not
-      // guaranteed here, since the backend can be hosted separately from the
-      // web app (e.g. local dev, or an ngrok tunnel). Fetching the bytes and
-      // handing the anchor a blob: URL sidesteps that entirely, since blob
-      // URLs are always same-origin regardless of where the bytes came from.
+      // <a download> only forces a save (rather than navigating the tab away)
+      // for same-origin URLs, not guaranteed since the backend can be hosted
+      // separately. Fetching the bytes into a blob: URL sidesteps that, since
+      // blob URLs are always same-origin.
       final response = await http.get(Uri.parse(ApiService.mediaUrl(url)));
       if (response.statusCode != 200) return MediaSaveResult.failed;
 

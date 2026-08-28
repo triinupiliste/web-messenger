@@ -22,15 +22,14 @@ class MessageBubble extends StatefulWidget {
   final String timestamp;
   final String status; // 'sending', 'sent', 'delivered', 'read', 'failed'
   final bool isEdited;
-  // Lightweight preview of the message this one is replying to, if any.
-  // Expected keys: 'sender_id', 'content', 'media_type', 'is_deleted'.
+  // Lightweight preview of the replied-to message, if any. Expected keys:
+  // 'sender_id', 'content', 'media_type', 'is_deleted'.
   final Map<String, dynamic>? replyTo;
   final String? replyToSenderName;
-  // Sender's display name, shown above the bubble content. Only meaningful (and
-  // only passed by the caller) for group chat messages from someone else.
+  // Sender's display name above the bubble; only used for group messages from
+  // someone else.
   final String? senderName;
-  // True for the currently-selected in-chat search match (see ChatRoomScreen's
-  // search bar) — renders a highlight border so the user can spot it at a glance.
+  // True for the currently-selected in-chat search match; renders a highlight border.
   final bool isHighlighted;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
@@ -69,13 +68,10 @@ class _MessageBubbleState extends State<MessageBubble> {
   double _dragExtent = 0;
   bool _dragging = false;
   bool _isHovered = false;
-  // True while the hover-triggered PopupMenuButton's dropdown is open. The mouse
-  // usually leaves the bubble's MouseRegion to reach the dropdown (which renders
-  // outside the bubble), which would normally flip _isHovered false and unmount
-  // the button (and its PopupMenuButton state) while its menu is still showing —
-  // silently swallowing onSelected once the framework's own menu-closing code
-  // finds the originating widget no longer mounted. Keeping the button mounted
-  // via this flag avoids that.
+  // True while the hover-triggered menu's dropdown is open. The mouse usually
+  // leaves the bubble's MouseRegion to reach the dropdown (rendered outside the
+  // bubble), which would otherwise unmount the button mid-menu and silently
+  // swallow onSelected. Keeping it mounted via this flag avoids that.
   bool _menuOpen = false;
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
@@ -204,11 +200,9 @@ class _MessageBubbleState extends State<MessageBubble> {
     });
   }
 
-  // Small "more options" button revealed on hover (mouse users on web), as a
-  // replacement for right-click — right-click also pops up the browser's own
-  // native context menu alongside ours, which looks broken/confusing.
-  // Kept deliberately small (SizedBox override) so it doesn't overlap
-  // neighboring messages when bubbles are close together vertically.
+  // Small "more options" button revealed on hover, replacing right-click
+  // (which would otherwise also pop up the browser's own context menu). Kept
+  // small so it doesn't overlap neighboring messages.
   Widget _buildHoverMenuButton() {
     return Material(
       color: AppColors.surface,
@@ -363,14 +357,11 @@ class _MessageBubbleState extends State<MessageBubble> {
               child: MouseRegion(
                 onEnter: kIsWeb ? (_) => setState(() => _isHovered = true) : null,
                 onExit: kIsWeb ? (_) => setState(() => _isHovered = false) : null,
-                // The hover button below is Positioned with negative offsets so it
-                // floats above/outside the bubble. A Positioned child doesn't
-                // contribute to the Stack's layout size, so without this padding
-                // reserving that same space, the button renders entirely outside
-                // this MouseRegion's hit-test box — moving the mouse onto it
-                // immediately fires onExit (removing the button from the tree,
-                // via the `if (... && _isHovered ...)` below) before the click can
-                // ever land, making Edit/Delete/Reply unclickable.
+                // The hover button is Positioned with negative offsets so it floats
+                // outside the bubble, but Positioned children don't contribute to
+                // the Stack's layout size — this padding reserves that space so the
+                // button stays inside this MouseRegion's hit-test box (otherwise
+                // moving onto it fires onExit and unmounts it before a click lands).
                 child: Padding(
                   padding: const EdgeInsets.only(top: 8, left: 6, right: 6),
                   child: Stack(

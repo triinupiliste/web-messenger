@@ -10,19 +10,19 @@ import '../utils/json_utils.dart';
 class ChatProvider with ChangeNotifier {
   List<ChatModel> _chats = [];
   bool _isLoading = false;
-  // The socket generation (see SocketService.socketGeneration) our listeners are
-  // currently registered against; -1 means "not attached to anything yet".
+  // The socket generation (see SocketService.socketGeneration) our listeners
+  // are registered against; -1 means not attached yet.
   int _attachedSocketGeneration = -1;
   String? _currentUserId;
 
-  // Chat swiped-to-delete but still within its "Undo" window; only persisted once the timer fires.
+  // Chat swiped-to-delete but still within its "Undo" window; only persisted
+  // once the timer fires.
   ChatModel? _pendingDeleteChat;
   int? _pendingDeleteIndex;
   Timer? _pendingDeleteTimer;
 
-  // Stored so dispose()/re-attachment can unregister exactly these callbacks.
-  // Not `final`: a different user logging in within the same app session gets a
-  // brand new underlying socket, so these get re-created and re-registered then.
+  // Stored so dispose()/re-attachment can unregister these exact callbacks.
+  // Not `final`: a different user logging in gets a new socket, recreating these.
   late void Function(dynamic) _onReceiveMessage;
   late void Function(dynamic) _onMessageDeleted;
   late void Function(dynamic) _onMessageEdited;
@@ -65,11 +65,9 @@ class ChatProvider with ChangeNotifier {
         NotificationSettingsService.setChatMuted(chat.chatId, chat.isMuted);
       }
 
-      // Join every one of this account's chat rooms, not just ones actually opened
-      // this session — otherwise a chat that isn't currently open in THIS browser
-      // tab/window never receives its receive_message/chat_read broadcasts (those
-      // are scoped to the chat's room), so this session's badge/preview for it
-      // would only ever catch up on a manual refresh.
+      // Join every one of this account's chat rooms, not just ones opened this
+      // session, since receive_message/chat_read broadcasts are scoped to the
+      // chat's room and would otherwise only catch up on manual refresh.
       _joinAllChatRooms();
     } catch (e) {
       debugPrint('Error fetching chats: $e');
@@ -80,8 +78,7 @@ class ChatProvider with ChangeNotifier {
   }
 
   // Same as fetchChats(), but doesn't toggle isLoading — used for background
-  // refreshes (e.g. after the chat's last message gets deleted) where
-  // replacing the whole list with a spinner would be a jarring flash.
+  // refreshes where replacing the list with a spinner would be a jarring flash.
   Future<void> _refreshChatsQuietly() async {
     try {
       final data = await ApiService.getChats();
@@ -111,10 +108,8 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Listen globally for incoming messages to update the chat list preview and sorting.
-  // Safe to call repeatedly: it's a no-op unless the underlying socket has changed
-  // since we last attached (e.g. a different user logged in within this same app
-  // session, replacing the socket instance our listeners were bound to).
+  // Listens globally for incoming messages to update the chat list preview
+  // and sorting. Cheap no-op unless the socket changed since we last attached.
   void _initGlobalSocketListener() {
     if (_attachedSocketGeneration == SocketService.socketGeneration) return;
     _detachSocketListeners();
@@ -160,11 +155,8 @@ class ChatProvider with ChangeNotifier {
       };
       SocketService.on(SocketEvents.receiveMessage, _onReceiveMessage);
 
-      // The chat list preview only shows non-deleted messages (mirroring the
-      // backend query), so if the message that was just deleted is the one
-      // currently shown as this chat's preview, refetch to reveal whatever
-      // the new most-recent (non-deleted) message actually is — the client
-      // doesn't have that older message's content cached locally.
+      // If the just-deleted message was this chat's shown preview, refetch to
+      // reveal the new most-recent non-deleted message (not cached locally).
       _onMessageDeleted = (data) {
         final chatId = (data['chat_id'] ?? data['chatId'])?.toString();
         final messageId = data['id']?.toString();
@@ -177,8 +169,7 @@ class ChatProvider with ChangeNotifier {
       };
       SocketService.on(SocketEvents.messageDeleted, _onMessageDeleted);
 
-      // Same idea as _onMessageDeleted, but simpler: an edit's payload already
-      // carries the new content, so no refetch is needed — just patch the
+      // An edit's payload already carries the new content, so just patch the
       // preview text in place when the edited message is the one shown.
       _onMessageEdited = (data) {
         final chatId = (data['chat_id'] ?? data['chatId'])?.toString();
@@ -226,23 +217,21 @@ class ChatProvider with ChangeNotifier {
       };
       SocketService.on(SocketEvents.inviteResponded, _onInviteResponded);
 
-      // This account read a chat's messages in another session (e.g. a second
-      // browser tab/window) — clear this chat's unread badge here too, instead
-      // of leaving it stale until a manual refresh.
+      // This account read a chat's messages in another session; clear this
+      // chat's unread badge here too instead of leaving it stale.
       _onChatRead = (data) {
         final chatId = data['chatId']?.toString();
         if (chatId != null) markChatRead(chatId);
       };
       SocketService.on(SocketEvents.chatRead, _onChatRead);
 
-      // This account archived/unarchived, muted/unmuted, or deleted/restored a
-      // chat from another one of its own sessions — refresh so this session's
-      // chat list matches without needing a manual refresh/restart.
+      // Archive/mute/delete toggled from another of this account's own
+      // sessions; refresh so this session's chat list matches.
       _onChatListUpdated = (_) => _refreshChatsQuietly();
       SocketService.on(SocketEvents.chatListUpdated, _onChatListUpdated);
 
-      // A contact changed their username/avatar; patch it into any chat we have with them.
-      // Group chats always have an empty contactId, so this never matches a group by accident.
+      // A contact changed their username/avatar; patch it into any chat with
+      // them. Group chats have an empty contactId so this never matches one.
       _onProfileUpdated = (data) {
         final userId = extractUserId(data, 'userId');
         if (userId == null) return;
@@ -270,8 +259,6 @@ class ChatProvider with ChangeNotifier {
       SocketService.on(SocketEvents.profileUpdated, _onProfileUpdated);
 
       // We were removed from (or left) a group; drop it from the list live.
-      // If someone else was removed, just refresh the member count via a refetch
-      // isn't necessary for the chat list, so no action is needed there.
       _onGroupMemberRemoved = (data) {
         if (_currentUserId != null && data['userId']?.toString() == _currentUserId) {
           final chatId = data['chatId'];
@@ -307,10 +294,9 @@ class ChatProvider with ChangeNotifier {
       };
       SocketService.on(SocketEvents.groupRenamed, _onGroupRenamed);
 
-      // Rejoin every known chat room after a (re)connect — a dropped/replaced
-      // connection loses prior room membership, so without this a session that
-      // briefly disconnects would silently stop receiving live updates for
-      // chats it isn't actively viewing until the next manual refresh.
+      // Rejoins every known chat room after a (re)connect — a dropped/replaced
+      // connection loses prior room membership, otherwise live updates for
+      // chats not actively viewed would stop until the next manual refresh.
       _onConnect = (_) => _joinAllChatRooms();
       SocketService.on(SocketEvents.connect, _onConnect);
 
@@ -326,8 +312,8 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Unregisters from whatever socket generation we were previously attached to
-  // (safe no-op the first time, before anything has ever been registered).
+  // Unregisters from the previously attached socket generation (safe no-op
+  // before anything has been registered).
   void _detachSocketListeners() {
     if (_attachedSocketGeneration == -1) return;
     SocketService.off(SocketEvents.receiveMessage, _onReceiveMessage);

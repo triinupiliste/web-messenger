@@ -46,12 +46,9 @@ class AvatarPicker extends StatelessWidget {
   void _showPickerOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      // Named distinctly from the outer `context` on purpose: this one is
-      // only valid for popping the sheet itself. It becomes unmounted well
-      // before an async image pick + crop can finish, so using it (instead
-      // of the outer, longer-lived screen context) for `_pickImage` caused
-      // `_pickImage`'s `context.mounted` check to always fail — silently
-      // bailing out with no crop dialog and no photo ever applied.
+      // Named distinctly from the outer `context`: this one becomes unmounted
+      // before an async pick+crop can finish, which previously made
+      // `_pickImage`'s `context.mounted` check always fail if reused here.
       builder: (BuildContext sheetContext) {
         return SafeArea(
           child: Wrap(
