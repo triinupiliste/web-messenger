@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../constants/socket_events.dart';
 import '../../services/api_service.dart';
+import '../../services/socket_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/snackbar_helper.dart';
@@ -31,17 +33,32 @@ class ProfileScreenState extends State<ProfileScreen> {
   String _usernameAtEditStart = '';
   String _emailAtEditStart = '';
   String _aboutMeAtEditStart = '';
+  String? _myUserId;
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    // Lets this same account's other active sessions (e.g. editing on the
+    // browser while the phone app is open) live-update without a restart.
+    SocketService.on(SocketEvents.profileUpdated, _onProfileUpdated);
+  }
+
+  void _onProfileUpdated(dynamic data) {
+    if (!mounted || _isEditing) return;
+    if (_myUserId == null || data['userId']?.toString() != _myUserId) return;
+    setState(() {
+      if (data['username'] != null) _usernameController.text = data['username'].toString();
+      if (data['avatar_url'] != null) _avatarUrl = data['avatar_url'].toString();
+      if (data['about_me'] != null) _aboutMeController.text = data['about_me'].toString();
+    });
   }
 
   Future<void> _loadProfile() async {
     try {
       final profile = await ApiService.getProfile();
       setState(() {
+        _myUserId = profile['id']?.toString();
         _usernameController.text = profile['username'] ?? '';
         _emailController.text = profile['email'] ?? '';
         _aboutMeController.text = profile['about_me'] ?? '';
@@ -167,6 +184,7 @@ class ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
+    SocketService.off(SocketEvents.profileUpdated, _onProfileUpdated);
     _usernameController.dispose();
     _emailController.dispose();
     _aboutMeController.dispose();
