@@ -1,3 +1,8 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -13,21 +18,42 @@ class AudioService {
   Stream<Duration> get onPositionChanged => _audioPlayer.onPositionChanged;
   Stream<void> get onPlayerComplete => _audioPlayer.onPlayerComplete;
 
+  // Browsers' MediaRecorder API can't produce AAC/M4A (mobile's format) — only
+  // Opus-in-WebM is broadly supported, so web must use a different encoder.
+  // Exposed so the caller can pick a matching filename extension.
+  String get recordingFileExtension => kIsWeb ? '.weba' : '.m4a';
+
   Future<void> startRecording() async {
     if (await _audioRecorder.hasPermission()) {
-      final dir = await getApplicationDocumentsDirectory();
-      _recordedPath = '${dir.path}/voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      
-      await _audioRecorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc),
-        path: _recordedPath!,
-      );
+      final config = RecordConfig(encoder: kIsWeb ? AudioEncoder.opus : AudioEncoder.aacLc);
+      if (kIsWeb) {
+        // No real filesystem on web — record only ever hands back a blob: URL
+        // from stop(), regardless of the path passed in here.
+        await _audioRecorder.start(config, path: '');
+      } else {
+        final dir = await getApplicationDocumentsDirectory();
+        _recordedPath = '${dir.path}/voice_note_${DateTime.now().millisecondsSinceEpoch}$recordingFileExtension';
+        await _audioRecorder.start(config, path: _recordedPath!);
+      }
     }
   }
 
   Future<String?> stopRecording() async {
     final path = await _audioRecorder.stop();
     return path ?? _recordedPath;
+  }
+
+  // Cross-platform: on mobile/desktop `record` writes a real file readable via
+  // dart:io; on web it only ever exposes a blob: URL (not a real file), so we
+  // fetch that instead — dart:io's File can't read blob: URLs.
+  Future<Uint8List?> stopRecordingBytes() async {
+    final path = await stopRecording();
+    if (path == null || path.isEmpty) return null;
+    if (kIsWeb) {
+      final response = await http.get(Uri.parse(path));
+      return response.bodyBytes;
+    }
+    return File(path).readAsBytes();
   }
 
   // "Remote" means an absolute http(s) URL (legacy rows) or a server-relative

@@ -34,4 +34,9 @@ class SocketEvents {
   // Emitted by the server right before disconnecting a socket whose account
   // just logged in on a different device (single-active-session enforcement).
   static const String forceLogout = 'force_logout';
+
+  // Emitted by the server to all of an account's connected devices whenever
+  // its active-sessions list changes (new login, or a device signed out),
+  // so the "Active sessions" screen can live-update without polling.
+  static const String sessionsUpdated = 'sessions_updated';
 }

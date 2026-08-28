@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -872,13 +871,11 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     } else {
       _recordingTimer?.cancel();
       _recordingTimer = null;
-      final path = await _audioService.stopRecording();
+      final bytes = await _audioService.stopRecordingBytes();
       setState(() => _isRecording = false);
-      if (path != null) {
-        // Voice recording (via path_provider + the `record` package) only
-        // produces a real filesystem path on mobile, so dart:io.File is fine here.
-        final bytes = await File(path).readAsBytes();
-        await _uploadAndSendMedia(bytes, path.split('/').last, 'audio');
+      if (bytes != null) {
+        final filename = 'voice_note_${DateTime.now().millisecondsSinceEpoch}${_audioService.recordingFileExtension}';
+        await _uploadAndSendMedia(bytes, filename, 'audio');
       }
     }
   }

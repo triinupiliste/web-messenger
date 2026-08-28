@@ -14,5 +14,5 @@
 //     'https://<your-subdomain>.ngrok-free.app'
 const String serverBaseUrl = String.fromEnvironment(
   'SERVER_BASE_URL',
-  defaultValue: 'https://mobile-messenger-production.up.railway.app',
+  defaultValue: 'https://web-messenger-production-750e.up.railway.app',
 );

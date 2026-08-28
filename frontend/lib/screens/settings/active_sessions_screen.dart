@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../constants/socket_events.dart';
 import '../../services/api_service.dart';
+import '../../services/socket_service.dart';
 import '../../theme/app_colors.dart';
 
 // Lets the user see every device/browser currently signed in to their account
@@ -22,22 +24,44 @@ class _ActiveSessionsScreenState extends State<ActiveSessionsScreen> {
   void initState() {
     super.initState();
     _loadSessions();
+    // Server pushes this whenever the account's session list changes (a login
+    // elsewhere, or a device being signed out), so the list live-updates
+    // without polling.
+    SocketService.on(SocketEvents.sessionsUpdated, _onSessionsUpdated);
   }
 
-  Future<void> _loadSessions() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+  @override
+  void dispose() {
+    SocketService.off(SocketEvents.sessionsUpdated, _onSessionsUpdated);
+    super.dispose();
+  }
+
+  void _onSessionsUpdated(dynamic _) => _loadSessions(silent: true);
+
+  // `silent` skips the full-screen loading spinner so background refreshes
+  // (triggered by the socket event) don't flash/replace the list the user is
+  // looking at.
+  Future<void> _loadSessions({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
     try {
       final sessions = await ApiService.getSessions();
       if (!mounted) return;
-      setState(() => _sessions = sessions);
+      setState(() {
+        _sessions = sessions;
+        _error = null;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      // Don't clobber the visible list with an error banner for a background
+      // refresh blip — only surface errors from an explicit/initial load.
+      if (!silent) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && !silent) setState(() => _isLoading = false);
     }
   }
 
