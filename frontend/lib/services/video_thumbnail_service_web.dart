@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:html' as html;
-import 'dart:typed_data';
+import 'dart:js_interop';
+import 'package:flutter/foundation.dart';
+import 'package:web/web.dart' as web;
 import 'package:http/http.dart' as http;
 import 'api_service.dart';
 
@@ -22,7 +23,8 @@ class VideoThumbnailService {
     Uint8List? bytes;
     try {
       bytes = await _captureFrame(ApiService.mediaUrl(url));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error generating video thumbnail on web: $e');
       bytes = null;
     }
     _cache[url] = bytes;
@@ -33,18 +35,18 @@ class VideoThumbnailService {
     final response = await http.get(Uri.parse(videoUrl), headers: ApiService.ngrokHeader);
     if (response.statusCode != 200) return null;
 
-    final blob = html.Blob([response.bodyBytes]);
-    final objectUrl = html.Url.createObjectUrlFromBlob(blob);
+    final blob = web.Blob([response.bodyBytes.toJS].toJS);
+    final objectUrl = web.URL.createObjectURL(blob);
     try {
       return await _grabFrame(objectUrl);
     } finally {
-      html.Url.revokeObjectUrl(objectUrl);
+      web.URL.revokeObjectURL(objectUrl);
     }
   }
 
   static Future<Uint8List?> _grabFrame(String objectUrl) {
     final completer = Completer<Uint8List?>();
-    final video = html.VideoElement()
+    final video = web.HTMLVideoElement()
       ..src = objectUrl
       ..muted = true
       ..preload = 'auto';
@@ -57,27 +59,45 @@ class VideoThumbnailService {
       if (!completer.isCompleted) completer.complete(result);
     }
 
-    video.onError.listen((_) => finish(null));
-    video.onLoadedData.listen((_) {
+    video.onerror = ((JSAny? _) => finish(null)).toJS;
+    video.onloadeddata = (JSAny? _) {
       // Avoids some codecs returning a blank first frame at t=0.
       video.currentTime = 0.1;
-    });
-    video.onSeeked.listen((_) async {
-      try {
-        final canvas = html.CanvasElement(width: video.videoWidth, height: video.videoHeight)
-          ..context2D.drawImage(video, 0, 0);
-        final blob = await canvas.toBlob('image/jpeg', 0.7);
-        final reader = html.FileReader()..readAsArrayBuffer(blob);
-        await reader.onLoadEnd.first;
-        finish((reader.result as ByteBuffer).asUint8List());
-      } catch (_) {
+    }.toJS;
+    video.onseeked = (JSAny? _) {
+      _captureCanvasFrame(video).then(finish).catchError((Object e) {
+        debugPrint('Error capturing video frame on web: $e');
         finish(null);
-      }
-    });
+      });
+    }.toJS;
 
-    html.document.body?.append(video);
+    web.document.body?.append(video);
     // Guards against a video that never fires loadeddata/seeked.
     Future.delayed(const Duration(seconds: 5), () => finish(null));
     return completer.future;
+  }
+
+  static Future<Uint8List?> _captureCanvasFrame(web.HTMLVideoElement video) async {
+    final canvas = web.HTMLCanvasElement()
+      ..width = video.videoWidth
+      ..height = video.videoHeight;
+    final context = canvas.getContext('2d') as web.CanvasRenderingContext2D;
+    context.drawImage(video, 0, 0);
+
+    final blobCompleter = Completer<web.Blob?>();
+    canvas.toBlob(
+      ((web.Blob? result) => blobCompleter.complete(result)).toJS,
+      'image/jpeg',
+      0.7.toJS,
+    );
+    final blob = await blobCompleter.future;
+    if (blob == null) return null;
+
+    final readCompleter = Completer<void>();
+    final reader = web.FileReader()
+      ..onloadend = ((JSAny? _) => readCompleter.complete()).toJS
+      ..readAsArrayBuffer(blob);
+    await readCompleter.future;
+    return (reader.result as JSArrayBuffer).toDart.asUint8List();
   }
 }

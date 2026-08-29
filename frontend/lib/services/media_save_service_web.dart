@@ -1,4 +1,6 @@
-import 'dart:html' as html;
+import 'dart:js_interop';
+import 'package:flutter/foundation.dart';
+import 'package:web/web.dart' as web;
 import 'package:http/http.dart' as http;
 import 'api_service.dart';
 
@@ -23,17 +25,19 @@ class MediaSaveService {
       final response = await http.get(Uri.parse(ApiService.mediaUrl(url)));
       if (response.statusCode != 200) return MediaSaveResult.failed;
 
-      final blob = html.Blob([response.bodyBytes]);
-      final objectUrl = html.Url.createObjectUrlFromBlob(blob);
-      final anchor = html.AnchorElement(href: objectUrl)
+      final blob = web.Blob([response.bodyBytes.toJS].toJS);
+      final objectUrl = web.URL.createObjectURL(blob);
+      final anchor = web.HTMLAnchorElement()
+        ..href = objectUrl
         ..download = _fileNameFor(url, mediaType)
         ..style.display = 'none';
-      html.document.body?.append(anchor);
+      web.document.body?.append(anchor);
       anchor.click();
       anchor.remove();
-      html.Url.revokeObjectUrl(objectUrl);
+      web.URL.revokeObjectURL(objectUrl);
       return MediaSaveResult.saved;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error saving media on web: $e');
       return MediaSaveResult.failed;
     }
   }

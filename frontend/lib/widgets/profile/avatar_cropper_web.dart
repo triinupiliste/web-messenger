@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:html' as html;
+import 'dart:js_interop';
+import 'package:web/web.dart' as web;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
@@ -10,14 +11,14 @@ import 'package:flutter/material.dart';
 // manual crop UI, this auto-crops the image to a centered square and
 // re-encodes it as JPEG via an offscreen <canvas>.
 Future<Uint8List?> cropAvatarImage(BuildContext context, String sourcePath) async {
-  final image = html.ImageElement();
+  final image = web.HTMLImageElement();
   final loaded = Completer<void>();
-  image.onLoad.first.then((_) {
+  image.onload = ((JSAny? _) {
     if (!loaded.isCompleted) loaded.complete();
-  });
-  image.onError.first.then((_) {
+  }).toJS;
+  image.onerror = ((JSAny? _) {
     if (!loaded.isCompleted) loaded.completeError('Failed to load picked image.');
-  });
+  }).toJS;
   image.src = sourcePath;
 
   try {
@@ -35,9 +36,11 @@ Future<Uint8List?> cropAvatarImage(BuildContext context, String sourcePath) asyn
   final srcY = (naturalHeight - side) / 2;
 
   const outputSize = 512;
-  final canvas = html.CanvasElement(width: outputSize, height: outputSize);
-  final ctx = canvas.context2D;
-  ctx.drawImageScaledFromSource(
+  final canvas = web.HTMLCanvasElement()
+    ..width = outputSize
+    ..height = outputSize;
+  final ctx = canvas.getContext('2d') as web.CanvasRenderingContext2D;
+  ctx.drawImage(
     image,
     srcX,
     srcY,
@@ -49,7 +52,7 @@ Future<Uint8List?> cropAvatarImage(BuildContext context, String sourcePath) asyn
     outputSize.toDouble(),
   );
 
-  final dataUrl = canvas.toDataUrl('image/jpeg', 0.9);
+  final dataUrl = canvas.toDataURL('image/jpeg', 0.9.toJS);
   final base64Data = dataUrl.substring(dataUrl.indexOf(',') + 1);
   return base64Decode(base64Data);
 }
