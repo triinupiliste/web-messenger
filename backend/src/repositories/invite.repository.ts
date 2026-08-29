@@ -1,6 +1,21 @@
 import pool from '../config/database';
-import { IncomingInviteItem, Invite, InviteStatus, OutgoingInviteItem } from '../models/invite.model';
+import { IncomingInviteItem, Invite, InviteStatus, InviteUserSummary, OutgoingInviteItem } from '../models/invite.model';
 import { decryptFields, decryptText } from '../utils/encryption.util';
+
+// Raw joined row shared by getPendingInvitesForUser/getIncomingInviteById/
+// getOutgoingInvitesForUser, before decrypting the nested user summary and
+// resolving the group_name/chat_id pair into a `group` object.
+interface EnrichedInviteRow {
+    id: string;
+    sender_id?: string;
+    receiver_id?: string;
+    status: InviteStatus;
+    created_at: Date;
+    chat_id: string | null;
+    sender?: InviteUserSummary;
+    recipient?: InviteUserSummary;
+    group_name: string | null;
+}
 
 export class InviteRepository {
     static async createInvite(senderId: string, receiverId: string, chatId?: string | null): Promise<Invite> {
@@ -47,7 +62,7 @@ export class InviteRepository {
             WHERE i.receiver_id = $1 AND i.status = 'pending'
             ORDER BY i.created_at DESC`;
         const result = await pool.query(query, [userId]);
-        return result.rows.map((row: any) => InviteRepository._enrichIncomingRow(row));
+        return result.rows.map((row: EnrichedInviteRow) => InviteRepository._enrichIncomingRow(row));
     }
 
     // Same shape as getPendingInvitesForUser, for a single invite — used to
@@ -90,25 +105,25 @@ export class InviteRepository {
             WHERE i.sender_id = $1 AND i.status = 'pending'
             ORDER BY i.created_at DESC`;
         const result = await pool.query(query, [userId]);
-        return result.rows.map((row: any) => {
+        return result.rows.map((row: EnrichedInviteRow) => {
             const { group_name, chat_id, ...rest } = row;
             return {
                 ...rest,
                 recipient: decryptFields({ ...row.recipient }, ['email', 'avatar_url']),
                 group: chat_id ? { chat_id, name: group_name ? decryptText(group_name) : '' } : null,
-            };
+            } as OutgoingInviteItem;
         });
     }
 
     // Shared by getPendingInvitesForUser/getIncomingInviteById: decrypts the
     // sender's fields and, if this is a group invite, attaches the decrypted group name.
-    private static _enrichIncomingRow(row: any): IncomingInviteItem {
+    private static _enrichIncomingRow(row: EnrichedInviteRow): IncomingInviteItem {
         const { group_name, chat_id, ...rest } = row;
         return {
             ...rest,
             sender: decryptFields({ ...row.sender }, ['email', 'avatar_url']),
             group: chat_id ? { chat_id, name: group_name ? decryptText(group_name) : '' } : null,
-        };
+        } as IncomingInviteItem;
     }
 
     static async updateInviteStatus(inviteId: string, status: InviteStatus): Promise<Invite | null> {
@@ -146,6 +161,6 @@ export class InviteRepository {
             FROM invites
             WHERE (sender_id = $1 OR receiver_id = $1) AND status = 'pending'`;
         const result = await pool.query(query, [userId]);
-        return result.rows.map((row: any) => row.partner_id);
+        return result.rows.map((row: { partner_id: string }) => row.partner_id);
     }
 }

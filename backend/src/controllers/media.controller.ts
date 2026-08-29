@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { generateStoredFilename } from '../middleware/upload.middleware';
 import { uploadObject, downloadObject } from '../config/storage';
@@ -33,51 +33,55 @@ const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
 };
 
 export class MediaController {
-    static async uploadMedia(req: Request, res: Response): Promise<void> {
-        const file = (req as any).file as Express.Multer.File | undefined;
+    static async uploadMedia(req: Request, res: Response, next: NextFunction): Promise<void> {
+        try {
+            const file = req.file;
 
-        if (!file) {
-            res.status(400).json({ error: 'No file was uploaded.' });
-            return;
-        }
-
-        let buffer = file.buffer;
-        let originalName = file.originalname;
-        const extension = path.extname(originalName).toLowerCase();
-        const isVideo = VIDEO_EXTENSIONS.has(extension);
-
-        if (isVideo) {
-            try {
-                buffer = await compressVideo(buffer, extension);
-                // ffmpeg always outputs an MP4 container regardless of the
-                // input format, so reflect that in the stored filename.
-                originalName = `${path.parse(originalName).name}.mp4`;
-            } catch (error) {
-                // Fall back to the original file rather than failing the send — the size
-                // check below still guards against anything too large.
-                logger.error('Video compression failed, storing original file instead:', error);
-                buffer = file.buffer;
+            if (!file) {
+                res.status(400).json({ error: 'No file was uploaded.' });
+                return;
             }
+
+            let buffer = file.buffer;
+            let originalName = file.originalname;
+            const extension = path.extname(originalName).toLowerCase();
+            const isVideo = VIDEO_EXTENSIONS.has(extension);
+
+            if (isVideo) {
+                try {
+                    buffer = await compressVideo(buffer, extension);
+                    // ffmpeg always outputs an MP4 container regardless of the
+                    // input format, so reflect that in the stored filename.
+                    originalName = `${path.parse(originalName).name}.mp4`;
+                } catch (error) {
+                    // Fall back to the original file rather than failing the send — the size
+                    // check below still guards against anything too large.
+                    logger.error('Video compression failed, storing original file instead:', error);
+                    buffer = file.buffer;
+                }
+            }
+
+            if (buffer.length > MAX_MEDIA_SIZE_BYTES) {
+                const message = isVideo
+                    ? 'This video is too large to send even after compression. Try a shorter clip.'
+                    : 'Media file size exceeds the 20MB limit.';
+                res.status(413).json({ error: message });
+                return;
+            }
+
+            // Encrypt the raw file bytes before they ever touch storage.
+            const filename = generateStoredFilename(originalName);
+            const encrypted = encryptBuffer(buffer);
+            await uploadObject(filename, encrypted);
+
+            // Returned as a relative path, not a full URL — the host (e.g. an ngrok
+            // tunnel) can change between restarts, which would break stored URLs otherwise.
+            const url = `/uploads/${filename}`;
+
+            res.status(201).json({ url });
+        } catch (error) {
+            next(error);
         }
-
-        if (buffer.length > MAX_MEDIA_SIZE_BYTES) {
-            const message = isVideo
-                ? 'This video is too large to send even after compression. Try a shorter clip.'
-                : 'Media file size exceeds the 20MB limit.';
-            res.status(413).json({ error: message });
-            return;
-        }
-
-        // Encrypt the raw file bytes before they ever touch storage.
-        const filename = generateStoredFilename(originalName);
-        const encrypted = encryptBuffer(buffer);
-        await uploadObject(filename, encrypted);
-
-        // Returned as a relative path, not a full URL — the host (e.g. an ngrok
-        // tunnel) can change between restarts, which would break stored URLs otherwise.
-        const url = `/uploads/${filename}`;
-
-        res.status(201).json({ url });
     }
 
     // Decrypts a stored media file on the fly and streams it back (replaces

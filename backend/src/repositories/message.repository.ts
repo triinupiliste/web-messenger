@@ -1,6 +1,28 @@
 import pool from '../config/database';
 import { Message, MessageStatus, MediaType, MessageReplyPreview } from '../models/message.model';
 import { encryptText, decryptText } from '../utils/encryption.util';
+import { MESSAGE_STATUS } from '../config/constants';
+
+// Shape of a raw joined row from getMessagesForChat's query (m.* plus the
+// optionally-joined reply-to message's columns, aliased with an r_ prefix).
+interface MessageRow {
+    id: string;
+    chat_id: string;
+    sender_id: string;
+    content: string | null;
+    media_url: string | null;
+    media_type: MediaType;
+    status: MessageStatus;
+    is_edited: boolean;
+    is_deleted: boolean;
+    reply_to_id: string | null;
+    created_at: Date;
+    r_id: string | null;
+    r_sender_id: string | null;
+    r_content: string | null;
+    r_media_type: MediaType | null;
+    r_is_deleted: boolean | null;
+}
 
 export class MessageRepository {
     static async saveMessage(
@@ -14,9 +36,9 @@ export class MessageRepository {
         const encryptedContent = content ? encryptText(content) : null;
         const query = `
             INSERT INTO messages (chat_id, sender_id, content, media_url, media_type, status, reply_to_id) 
-            VALUES ($1, $2, $3, $4, $5, 'sent', $6) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7) 
             RETURNING *`;
-        const result = await pool.query(query, [chatId, senderId, encryptedContent, mediaUrl, mediaType, replyToId || null]);
+        const result = await pool.query(query, [chatId, senderId, encryptedContent, mediaUrl, mediaType, MESSAGE_STATUS.SENT, replyToId || null]);
         const msg: Message = result.rows[0];
         if (msg.content) msg.content = decryptText(msg.content);
         if (msg.reply_to_id) {
@@ -56,7 +78,7 @@ export class MessageRepository {
             ORDER BY m.created_at ASC`;
         const result = await pool.query(query, [chatId, userId]);
 
-        return result.rows.map((row: any) => {
+        return result.rows.map((row: MessageRow) => {
             const msg: Message = {
                 id: row.id,
                 chat_id: row.chat_id,
@@ -71,12 +93,14 @@ export class MessageRepository {
                 created_at: row.created_at,
             };
             if (row.r_id) {
+                // Guaranteed non-null alongside r_id since they come from the same
+                // LEFT JOIN row (either all reply-to columns are populated, or all NULL).
                 msg.reply_to = {
                     id: row.r_id,
-                    sender_id: row.r_sender_id,
+                    sender_id: row.r_sender_id!,
                     content: row.r_is_deleted ? null : (row.r_content ? decryptText(row.r_content) : null),
-                    media_type: row.r_media_type,
-                    is_deleted: row.r_is_deleted,
+                    media_type: row.r_media_type!,
+                    is_deleted: row.r_is_deleted!,
                 };
             }
             return msg;
@@ -100,10 +124,10 @@ export class MessageRepository {
         // until *all* other members have seen it, not just the first one to open the chat.
         const result = await pool.query(
             `UPDATE messages
-             SET status = 'read'
+             SET status = $3
              WHERE chat_id = $1
                AND sender_id != $2
-               AND status != 'read'
+               AND status != $3
                AND is_deleted = FALSE
                AND NOT EXISTS (
                    SELECT 1 FROM chat_participants other
@@ -113,7 +137,7 @@ export class MessageRepository {
                      AND (other.last_read_at IS NULL OR other.last_read_at < messages.created_at)
                )
              RETURNING id`,
-            [chatId, userId],
+            [chatId, userId, MESSAGE_STATUS.READ],
         );
         return result.rows;
     }

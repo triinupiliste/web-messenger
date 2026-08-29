@@ -5,9 +5,10 @@
 // Multiple sessions (e.g. mobile + web) can be active for the same account
 // at once — this is not a single-session check.
 import { SessionRepository } from '../repositories/session.repository';
+import type { AuthenticatedUser } from '../middleware/auth.middleware';
 
-export async function hasValidSession(decoded: any): Promise<boolean> {
-    if (!decoded || typeof decoded.sessionId !== 'string' || typeof decoded.userId !== 'string') {
+export async function hasValidSession(decoded: AuthenticatedUser | string | undefined): Promise<boolean> {
+    if (!decoded || typeof decoded === 'string' || typeof decoded.sessionId !== 'string' || typeof decoded.userId !== 'string') {
         return false;
     }
     return SessionRepository.isActive(decoded.sessionId, decoded.userId);

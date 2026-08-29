@@ -37,17 +37,18 @@ export function verifyToken(req: Request, res: Response, next: NextFunction): vo
         return;
     }
 
-    jwt.verify(token, JWT_SECRET, (err: any, decoded: any) => {
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) {
             res.status(403).json({ error: 'Token is invalid or expired.' });
             return;
         }
-        hasValidSession(decoded).then((valid) => {
+        const user = decoded as AuthenticatedUser;
+        hasValidSession(user).then((valid) => {
             if (!valid) {
                 res.status(401).json(SESSION_INVALIDATED_RESPONSE);
                 return;
             }
-            req.user = decoded;
+            req.user = user;
             next();
         }).catch(() => {
             res.status(500).json({ error: 'Internal server error during authentication.' });
@@ -68,17 +69,18 @@ export function verifyMediaToken(req: Request, res: Response, next: NextFunction
         return;
     }
 
-    jwt.verify(token, JWT_SECRET, (err: any, decoded: any) => {
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) {
             res.status(403).json({ error: 'Token is invalid or expired.' });
             return;
         }
-        hasValidSession(decoded).then((valid) => {
+        const user = decoded as AuthenticatedUser;
+        hasValidSession(user).then((valid) => {
             if (!valid) {
                 res.status(401).json(SESSION_INVALIDATED_RESPONSE);
                 return;
             }
-            req.user = decoded;
+            req.user = user;
             next();
         }).catch(() => {
             res.status(500).json({ error: 'Internal server error during authentication.' });

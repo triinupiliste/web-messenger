@@ -8,6 +8,18 @@ function withDecryptedEmail<T extends { email?: string | null }>(row: T): T {
     return decryptFields(row, ['email']) as T;
 }
 
+// Row shape from searchUsers' query — a search-result projection, not a full
+// User (no password_hash/is_verified/etc., plus two derived columns).
+export interface SearchUserRow {
+    id: string;
+    email: string;
+    username: string;
+    created_at: Date;
+    avatar_url: string | null;
+    chat_id: string | null;
+    relationship_status: 'friends' | 'pending' | 'none';
+}
+
 export class UserRepository {
     // Matched via the deterministic email_hash, since the encrypted email column
     // can't be matched with SQL `=`. Callers must pass an already-normalized email.
@@ -130,7 +142,7 @@ export class UserRepository {
         }
     }
 
-    static async searchUsers(searchTerm: string, currentUserId: string): Promise<User[]> {
+    static async searchUsers(searchTerm: string, currentUserId: string): Promise<SearchUserRow[]> {
         // relationship_status lets the client show "Friends"/"Pending" instead of an
         // Invite button. Declined/removed invites are excluded so that pair can be invited again.
         const query = `
@@ -168,7 +180,7 @@ export class UserRepository {
             currentUserId,
             hashForLookup(searchTerm.trim().toLowerCase()),
         ]);
-        return result.rows.map((row: any) => decryptFields(row, ['email', 'avatar_url']));
+        return result.rows.map((row: SearchUserRow) => decryptFields(row, ['email', 'avatar_url']) as SearchUserRow);
     }
 
     static async existsById(userId: string): Promise<boolean> {

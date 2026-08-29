@@ -1,21 +1,22 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { ChatRepository } from '../repositories/chat.repository';
 import { MessageRepository } from '../repositories/message.repository';
 import { InviteRepository } from '../repositories/invite.repository';
 import { getIO } from '../sockets/socket.instance';
+import { MAX_SEARCH_RESULTS, MESSAGE_STATUS } from '../config/constants';
 
 export class ChatController {
-    static async getChatList(req: Request, res: Response): Promise<void> {
+    static async getChatList(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const chats = await ChatRepository.getChatListForUser(userId);
             res.status(200).json(chats);
         } catch (error) {
-            res.status(500).json({ error: 'Failed to fetch chat list.' });
+            next(error);
         }
     }
 
-    static async toggleArchiveChat(req: Request, res: Response): Promise<string | void> {
+    static async toggleArchiveChat(req: Request, res: Response, next: NextFunction): Promise<string | void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
@@ -26,11 +27,11 @@ export class ChatController {
             getIO()?.to(userId).emit('chat_list_updated');
             res.status(200).json({ message: `Chat ${isArchived ? 'archived' : 'unarchived'} successfully.` });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to update chat archive state.' });
+            next(error);
         }
     }
 
-    static async toggleMuteChat(req: Request, res: Response): Promise<string | void> {
+    static async toggleMuteChat(req: Request, res: Response, next: NextFunction): Promise<string | void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
@@ -40,11 +41,11 @@ export class ChatController {
             getIO()?.to(userId).emit('chat_list_updated');
             res.status(200).json({ message: `Chat ${isMuted ? 'muted' : 'unmuted'} successfully.` });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to update chat mute state.' });
+            next(error);
         }
     }
 
-    static async toggleDeleteChat(req: Request, res: Response): Promise<string | void> {
+    static async toggleDeleteChat(req: Request, res: Response, next: NextFunction): Promise<string | void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
@@ -54,13 +55,13 @@ export class ChatController {
             getIO()?.to(userId).emit('chat_list_updated');
             res.status(200).json({ message: `Chat ${isDeleted ? 'deleted' : 'restored'} successfully.` });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to update chat delete state.' });
+            next(error);
         }
     }
 
     // Ends the friendship: hides the chat for both participants, but (unlike a
     // manual delete) keeps history intact in case they reconnect later.
-    static async removeFriend(req: Request, res: Response): Promise<string | void> {
+    static async removeFriend(req: Request, res: Response, next: NextFunction): Promise<string | void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
@@ -80,22 +81,22 @@ export class ChatController {
 
             res.status(200).json({ message: 'Friend removed successfully.' });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to remove friend.' });
+            next(error);
         }
     }
 
-    static async getChatMessages(req: Request, res: Response): Promise<string | void> {
+    static async getChatMessages(req: Request, res: Response, next: NextFunction): Promise<string | void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
             const messages = await MessageRepository.getMessagesForChat(chatId, userId);
             res.status(200).json(messages);
         } catch (error) {
-            res.status(500).json({ error: 'Failed to fetch chat messages.' });
+            next(error);
         }
     }
 
-    static async markMessagesRead(req: Request, res: Response): Promise<void> {
+    static async markMessagesRead(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
@@ -112,20 +113,16 @@ export class ChatController {
             // member has caught up; broadcast exactly which messages crossed that
             // line so senders' ticks update precisely.
             for (const msg of nowFullyRead) {
-                getIO()?.to(chatId).emit('message_status_updated', { messageId: msg.id, status: 'read' });
+                getIO()?.to(chatId).emit('message_status_updated', { messageId: msg.id, status: MESSAGE_STATUS.READ });
             }
 
             res.status(200).json({ message: 'Messages marked as read.' });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to mark messages as read.' });
+            next(error);
         }
     }
 
-    // Capped so a very common search term in a huge chat doesn't return an
-    // unbounded payload; `total` tells the client if results were truncated.
-    private static readonly MAX_SEARCH_RESULTS = 200;
-
-    static async searchMessages(req: Request, res: Response): Promise<void> {
+    static async searchMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
@@ -141,7 +138,7 @@ export class ChatController {
             }
 
             const matches = await MessageRepository.searchMessages(chatId, userId, query);
-            const results = matches.slice(0, ChatController.MAX_SEARCH_RESULTS).map((m) => ({
+            const results = matches.slice(0, MAX_SEARCH_RESULTS).map((m) => ({
                 id: m.id,
                 content: m.content,
                 sender_id: m.sender_id,
@@ -151,7 +148,7 @@ export class ChatController {
 
             res.status(200).json({ results, total: matches.length });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to search messages.' });
+            next(error);
         }
     }
 
@@ -159,7 +156,7 @@ export class ChatController {
 
     // Creates a new group chat with just the requester as its owner; other
     // members are added afterwards via the invite system (see InviteController).
-    static async createGroup(req: Request, res: Response): Promise<void> {
+    static async createGroup(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const name = (req.body?.name ?? '').toString().trim();
@@ -176,11 +173,11 @@ export class ChatController {
             const chatId = await ChatRepository.createGroupChat(userId, name);
             res.status(201).json({ message: 'Group created successfully.', chatId });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to create group.' });
+            next(error);
         }
     }
 
-    static async getGroupMembers(req: Request, res: Response): Promise<void> {
+    static async getGroupMembers(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
@@ -193,13 +190,13 @@ export class ChatController {
             const members = await ChatRepository.getGroupMembers(chatId);
             res.status(200).json(members);
         } catch (error) {
-            res.status(500).json({ error: 'Failed to fetch group members.' });
+            next(error);
         }
     }
 
     // Removes a member from a group: any member can remove themselves (leave),
     // but only the owner can remove someone else, and the owner can't be removed.
-    static async removeMember(req: Request, res: Response): Promise<void> {
+    static async removeMember(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
@@ -236,12 +233,12 @@ export class ChatController {
 
             res.status(200).json({ message: isSelf ? 'Left the group.' : 'Member removed.' });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to remove group member.' });
+            next(error);
         }
     }
 
     // Owner-only: renames the group chat.
-    static async renameGroup(req: Request, res: Response): Promise<void> {
+    static async renameGroup(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const chatId = req.params.chatId as string;
@@ -272,7 +269,7 @@ export class ChatController {
 
             res.status(200).json({ message: 'Group renamed successfully.' });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to rename group.' });
+            next(error);
         }
     }
 }

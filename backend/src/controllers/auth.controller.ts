@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { createHash, randomBytes } from 'crypto';
@@ -35,7 +35,7 @@ function createResetToken(): { rawToken: string; tokenHash: string; expiresAt: D
 }
 
 export class AuthController {
-    static async register(req: Request, res: Response): Promise<void> {
+    static async register(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const { email, username, password } = req.body;
 
@@ -100,11 +100,11 @@ export class AuthController {
                 user: { id: newUser.id, email: newUser.email, username: newUser.username },
             });
         } catch (error) {
-            res.status(500).json({ error: 'Internal server error during registration.' });
+            next(error);
         }
     }
 
-    static async login(req: Request, res: Response): Promise<void> {
+    static async login(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const { email, password } = req.body;
             const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
@@ -159,7 +159,7 @@ export class AuthController {
                 session: { id: session.id, platform: session.platform, deviceName: session.device_name },
             });
         } catch (error) {
-            res.status(500).json({ error: 'Internal server error during login.' });
+            next(error);
         }
     }
 
@@ -238,7 +238,7 @@ export class AuthController {
         }
     }
 
-    static async requestPasswordReset(req: Request, res: Response): Promise<void> {
+    static async requestPasswordReset(req: Request, res: Response, next: NextFunction): Promise<void> {
         // Always respond with the same generic message, regardless of whether the
         // email exists, so this endpoint can't be used to enumerate accounts.
         const genericMessage = 'If an account with that email exists, a password reset link has been sent.';
@@ -270,8 +270,7 @@ export class AuthController {
 
             res.status(200).json({ message: genericMessage });
         } catch (error) {
-            logger.error('Password reset request failed:', error);
-            res.status(500).json({ error: 'Unable to process password reset request right now.' });
+            next(error);
         }
     }
 
@@ -334,7 +333,7 @@ export class AuthController {
 
     // Lists this account's active sessions/devices (e.g. mobile + web signed in
     // at once), for a "manage active sessions" settings screen.
-    static async listSessions(req: Request, res: Response): Promise<void> {
+    static async listSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const sessions = await SessionRepository.listActive(req.user!.userId);
             res.status(200).json({
@@ -348,14 +347,13 @@ export class AuthController {
                 })),
             });
         } catch (error) {
-            logger.error('Failed to list sessions:', error);
-            res.status(500).json({ error: 'Unable to load active sessions right now.' });
+            next(error);
         }
     }
 
     // Selective logout: signs out one specific device without affecting the
     // account's other active sessions.
-    static async revokeSession(req: Request, res: Response): Promise<void> {
+    static async revokeSession(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const { sessionId } = req.params;
             const revoked = await SessionRepository.revoke(sessionId, req.user!.userId);
@@ -377,15 +375,14 @@ export class AuthController {
 
             res.status(200).json({ message: 'That device has been logged out.' });
         } catch (error) {
-            logger.error('Failed to revoke session:', error);
-            res.status(500).json({ error: 'Unable to log out that device right now.' });
+            next(error);
         }
     }
 
     // Clean logout of the calling device's own session (as opposed to the
     // client just discarding its token locally), so it stops appearing as
     // "active" to the account's other devices.
-    static async logout(req: Request, res: Response): Promise<void> {
+    static async logout(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             if (req.user?.sessionId) {
                 await SessionRepository.revoke(req.user.sessionId, req.user.userId);
@@ -395,8 +392,7 @@ export class AuthController {
             }
             res.status(200).json({ message: 'Logged out.' });
         } catch (error) {
-            logger.error('Failed to log out:', error);
-            res.status(500).json({ error: 'Unable to log out right now.' });
+            next(error);
         }
     }
 }

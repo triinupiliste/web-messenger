@@ -1,13 +1,12 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { UserRepository } from '../repositories/user.repository';
 import { ChatRepository } from '../repositories/chat.repository';
 import { InviteRepository } from '../repositories/invite.repository';
 import { isValidEmail } from '../utils/validator.util';
 import { getIO } from '../sockets/socket.instance';
-import { logger } from '../utils/logger.util';
 
 export class UserController {
-    static async getProfile(req: Request, res: Response): Promise<void> {
+    static async getProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const profile = await UserRepository.getProfile(userId);
@@ -17,11 +16,11 @@ export class UserController {
             }
             res.status(200).json(profile);
         } catch (error) {
-            res.status(500).json({ error: 'Failed to fetch user profile.' });
+            next(error);
         }
     }
 
-    static async updateProfile(req: Request, res: Response): Promise<void> {
+    static async updateProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const { avatar_url, about_me, username, email } = req.body;
@@ -91,13 +90,13 @@ export class UserController {
 
             res.status(200).json({ message: 'Profile updated successfully', profile: updatedProfile });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to update profile.' });
+            next(error);
         }
     }
 
 
     // Used by the "View Profile" option in a chat's overflow menu.
-    static async getUserById(req: Request, res: Response): Promise<void> {
+    static async getUserById(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const { userId } = req.params;
             const profile = await UserRepository.getProfile(userId);
@@ -107,11 +106,11 @@ export class UserController {
             }
             res.status(200).json(profile);
         } catch (error) {
-            res.status(500).json({ error: 'Failed to fetch user profile.' });
+            next(error);
         }
     }
 
-    static async searchUsers(req: Request, res: Response): Promise<void> {
+    static async searchUsers(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const tokenUser = req.user;
             const currentUserId = tokenUser?.userId;
@@ -130,13 +129,12 @@ export class UserController {
             const users = await UserRepository.searchUsers(searchTerm, currentUserId);
             res.status(200).json(users);
         } catch (error) {
-            logger.error('Search error:', error);
-            res.status(500).json({ error: 'Failed to search users.' });
+            next(error);
         }
     }
 
     // Lets the backend push notifications (new messages, invites) to this device.
-    static async updateFcmToken(req: Request, res: Response): Promise<void> {
+    static async updateFcmToken(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const { fcmToken } = req.body;
@@ -149,7 +147,7 @@ export class UserController {
             await UserRepository.updateFcmToken(userId, fcmToken);
             res.status(200).json({ message: 'FCM token saved.' });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to save FCM token.' });
+            next(error);
         }
     }
 }

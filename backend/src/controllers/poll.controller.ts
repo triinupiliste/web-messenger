@@ -1,12 +1,13 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { PollRepository } from '../repositories/poll.repository';
 import { ChatRepository } from '../repositories/chat.repository';
 import { getIO } from '../sockets/socket.instance';
-
-const MAX_OPTIONS = 10;
-const MIN_OPTIONS = 2;
-const MAX_QUESTION_LENGTH = 300;
-const MAX_OPTION_LENGTH = 100;
+import {
+    POLL_MAX_OPTIONS,
+    POLL_MIN_OPTIONS,
+    POLL_MAX_QUESTION_LENGTH,
+    POLL_MAX_OPTION_LENGTH,
+} from '../config/constants';
 
 export class PollController {
     // 'voted_by_me' is per-requester, so a poll can't be broadcast as-is to a
@@ -31,7 +32,7 @@ export class PollController {
     // Creates the poll's DB rows only; the client sends the actual chat message
     // via 'send_message' (mediaType: 'poll', mediaUrl: pollId), reusing its
     // existing broadcast/push/revive-chat logic.
-    static async createPoll(req: Request, res: Response): Promise<void> {
+    static async createPoll(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const { chatId, question, options, isAnonymous, allowMultipleAnswers } = req.body;
@@ -50,20 +51,20 @@ export class PollController {
                 res.status(400).json({ error: 'A poll question is required.' });
                 return;
             }
-            if (trimmedQuestion.length > MAX_QUESTION_LENGTH) {
-                res.status(400).json({ error: `Poll question must be ${MAX_QUESTION_LENGTH} characters or fewer.` });
+            if (trimmedQuestion.length > POLL_MAX_QUESTION_LENGTH) {
+                res.status(400).json({ error: `Poll question must be ${POLL_MAX_QUESTION_LENGTH} characters or fewer.` });
                 return;
             }
 
             const trimmedOptions: string[] = Array.isArray(options)
-                ? options.map((o: any) => (o ?? '').toString().trim()).filter((o: string) => o.length > 0)
+                ? options.map((o: unknown) => (o ?? '').toString().trim()).filter((o: string) => o.length > 0)
                 : [];
-            if (trimmedOptions.length < MIN_OPTIONS || trimmedOptions.length > MAX_OPTIONS) {
-                res.status(400).json({ error: `A poll needs between ${MIN_OPTIONS} and ${MAX_OPTIONS} options.` });
+            if (trimmedOptions.length < POLL_MIN_OPTIONS || trimmedOptions.length > POLL_MAX_OPTIONS) {
+                res.status(400).json({ error: `A poll needs between ${POLL_MIN_OPTIONS} and ${POLL_MAX_OPTIONS} options.` });
                 return;
             }
-            if (trimmedOptions.some((o) => o.length > MAX_OPTION_LENGTH)) {
-                res.status(400).json({ error: `Each option must be ${MAX_OPTION_LENGTH} characters or fewer.` });
+            if (trimmedOptions.some((o) => o.length > POLL_MAX_OPTION_LENGTH)) {
+                res.status(400).json({ error: `Each option must be ${POLL_MAX_OPTION_LENGTH} characters or fewer.` });
                 return;
             }
 
@@ -79,11 +80,11 @@ export class PollController {
             const poll = await PollRepository.getPollDetail(pollId, userId);
             res.status(201).json({ message: 'Poll created successfully.', pollId, poll });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to create poll.' });
+            next(error);
         }
     }
 
-    static async getPoll(req: Request, res: Response): Promise<void> {
+    static async getPoll(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const pollId = req.params.pollId as string;
@@ -101,19 +102,19 @@ export class PollController {
             const poll = await PollRepository.getPollDetail(pollId, userId);
             res.status(200).json(poll);
         } catch (error) {
-            res.status(500).json({ error: 'Failed to fetch poll.' });
+            next(error);
         }
     }
 
     // Replaces the requester's vote(s) with the given option ids (an empty
     // array retracts their vote). Broadcasts the fresh tally to the chat room.
-    static async vote(req: Request, res: Response): Promise<void> {
+    static async vote(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const pollId = req.params.pollId as string;
             const { optionIds } = req.body;
 
-            if (!Array.isArray(optionIds) || optionIds.some((id: any) => typeof id !== 'string')) {
+            if (!Array.isArray(optionIds) || optionIds.some((id: unknown) => typeof id !== 'string')) {
                 res.status(400).json({ error: 'optionIds must be an array of strings.' });
                 return;
             }
@@ -150,12 +151,12 @@ export class PollController {
 
             res.status(200).json(poll);
         } catch (error) {
-            res.status(500).json({ error: 'Failed to record vote.' });
+            next(error);
         }
     }
 
     // Creator-only: stops further voting on this poll.
-    static async closePoll(req: Request, res: Response): Promise<void> {
+    static async closePoll(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const pollId = req.params.pollId as string;
@@ -177,7 +178,7 @@ export class PollController {
 
             res.status(200).json(poll);
         } catch (error) {
-            res.status(500).json({ error: 'Failed to close poll.' });
+            next(error);
         }
     }
 }

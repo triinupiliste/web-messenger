@@ -8,6 +8,8 @@ import { PushService } from '../services/push.service';
 import { JWT_SECRET } from '../config/env';
 import { hasValidSession } from '../utils/session.util';
 import { logger } from '../utils/logger.util';
+import { MediaType } from '../models/message.model';
+import type { AuthenticatedUser } from '../middleware/auth.middleware';
 
 function buildMessagePreview(content: string | null | undefined, mediaType: string): string {
     switch (mediaType) {
@@ -30,24 +32,25 @@ function buildMessagePreview(content: string | null | undefined, mediaType: stri
 
 export function registerChatHandlers(io: Server) {
     // Reject the connection up front unless it carries a valid JWT.
-    io.use((socket: Socket, next: (err?: any) => void) => {
+    io.use((socket: Socket, next) => {
         const token = socket.handshake.auth.token || socket.handshake.headers['authorization']?.split(' ')[1];
         
         if (!token) {
             return next(new Error('Authentication error: Token missing'));
         }
 
-        jwt.verify(token, JWT_SECRET, (err: any, decoded: any) => {
+        jwt.verify(token, JWT_SECRET, (err: jwt.VerifyErrors | null, decoded: jwt.JwtPayload | string | undefined) => {
             if (err) {
                 return next(new Error('Authentication error: Invalid or expired token'));
             }
+            const user = decoded as AuthenticatedUser;
             // Reject a token whose specific session has been revoked (selectively logged
             // out, or logged out from that device) — see login()/auth.middleware.ts.
-            hasValidSession(decoded).then((valid) => {
+            hasValidSession(user).then((valid) => {
                 if (!valid) {
                     return next(new Error('Authentication error: This session has been logged out'));
                 }
-                socket.data.user = decoded;
+                socket.data.user = user;
                 next();
             }).catch(() => next(new Error('Authentication error: Could not verify session')));
         });
@@ -82,7 +85,7 @@ export function registerChatHandlers(io: Server) {
             logger.info(`User ${userId} joined chat room: ${chatId}`);
         });
 
-        socket.on('send_message', async (data: { chatId: string; content?: string; mediaUrl?: string; mediaType?: any; tempId?: string; replyToId?: string }) => {
+        socket.on('send_message', async (data: { chatId: string; content?: string; mediaUrl?: string; mediaType?: MediaType; tempId?: string; replyToId?: string }) => {
             try {
                 const { chatId, content, mediaUrl, mediaType, tempId, replyToId } = data;
                 

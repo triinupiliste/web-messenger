@@ -2,6 +2,16 @@ import pool from '../config/database';
 import { Poll, PollDetail, PollOptionResult } from '../models/poll.model';
 import { decryptText, encryptText } from '../utils/encryption.util';
 
+// Row shape from getPollDetail's options query, before decrypting option_text.
+interface PollOptionRow {
+    id: string;
+    option_text: string;
+    position: number;
+    vote_count: number;
+    voted_by_me: boolean;
+    voter_usernames: string[] | null;
+}
+
 export class PollRepository {
     // Creates a poll and its options in one transaction; returns the new poll's id.
     static async createPoll(
@@ -77,7 +87,7 @@ export class PollRepository {
             ORDER BY po.position ASC`;
         const optionsResult = await pool.query(optionsQuery, [pollId, requestingUserId, poll.is_anonymous]);
 
-        const options: PollOptionResult[] = optionsResult.rows.map((row: any) => ({
+        const options: PollOptionResult[] = optionsResult.rows.map((row: PollOptionRow) => ({
             id: row.id,
             option_text: decryptText(row.option_text),
             position: row.position,
@@ -109,7 +119,7 @@ export class PollRepository {
     // requests only reference options that actually belong to this poll.
     static async getOptionIds(pollId: string): Promise<string[]> {
         const result = await pool.query('SELECT id FROM poll_options WHERE poll_id = $1', [pollId]);
-        return result.rows.map((row: any) => row.id);
+        return result.rows.map((row: { id: string }) => row.id);
     }
 
     // Replaces this user's vote(s) on the poll with the given option ids

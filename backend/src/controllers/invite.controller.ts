@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { InviteRepository } from '../repositories/invite.repository';
 import { ChatRepository } from '../repositories/chat.repository';
 import { UserRepository } from '../repositories/user.repository';
@@ -7,7 +7,7 @@ import { getIO } from '../sockets/socket.instance';
 import { logger } from '../utils/logger.util';
 
 export class InviteController {
-    static async sendInvite(req: Request, res: Response): Promise<void> {
+    static async sendInvite(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const senderId = req.user!.userId;
             const { receiverId, chatId } = req.body;
@@ -85,11 +85,11 @@ export class InviteController {
                 logger.error('Failed to send invite push notification:', pushError);
             }
         } catch (error) {
-            res.status(500).json({ error: 'Failed to send chat invite.' });
+            next(error);
         }
     }
 
-    static async getPendingInvites(req: Request, res: Response): Promise<void> {
+    static async getPendingInvites(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const [incoming, outgoing] = await Promise.all([
@@ -98,11 +98,11 @@ export class InviteController {
             ]);
             res.status(200).json({ incoming, outgoing });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to fetch pending invites.' });
+            next(error);
         }
     }
 
-    static async respondToInvite(req: Request, res: Response): Promise<void> {
+    static async respondToInvite(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const userId = req.user!.userId;
             const { inviteId, status } = req.body; // status: 'accepted' or 'declined'
@@ -143,7 +143,7 @@ export class InviteController {
 
             res.status(200).json({ message: `Invite ${status} successfully.`, invite: updated });
         } catch (error) {
-            res.status(500).json({ error: 'Failed to respond to invite.' });
+            next(error);
         }
     }
 }

@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 
 import authRoutes from './routes/auth.routes';
@@ -31,6 +32,26 @@ const io = new Server(server, {
 });
 setIO(io);
 
+// Behind Railway's proxy, so trust the first hop for correct client IPs
+// (needed for accurate rate limiting).
+app.set('trust proxy', 1);
+
+// CSP is scoped to what /uploads and the verify-email/reset-password pages
+// actually need (self-hosted assets + Google Fonts), since default-src 'self'
+// would otherwise break those.
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+            fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+            imgSrc: ["'self'", 'data:'],
+        },
+    },
+    // The frontend is hosted on a different origin than this API, so media
+    // responses must stay loadable cross-origin.
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 
 app.use(cors({ origin: (origin, callback) => callback(null, isOriginAllowed(origin)) }));
 app.use(express.json());

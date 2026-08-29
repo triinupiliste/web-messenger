@@ -98,7 +98,7 @@ export class ChatRepository {
             WHERE cp.chat_id = $1
             ORDER BY (cp.role = 'owner') DESC, u.username ASC`;
         const result = await pool.query(query, [chatId]);
-        return result.rows.map((row: any) => decryptFields(row, ['avatar_url']));
+        return result.rows.map((row: GroupMember) => decryptFields(row, ['avatar_url']) as GroupMember);
     }
 
     static async isGroupOwner(chatId: string, userId: string): Promise<boolean> {
@@ -135,7 +135,7 @@ export class ChatRepository {
             JOIN chat_participants other_cp ON cp.chat_id = other_cp.chat_id AND other_cp.user_id != $1
             WHERE cp.user_id = $1`;
         const result = await pool.query(query, [userId]);
-        return result.rows.map((row: any) => row.contact_id);
+        return result.rows.map((row: { contact_id: string }) => row.contact_id);
     }
 
     static async getChatListForUser(userId: string): Promise<ChatListItem[]> {
@@ -200,8 +200,8 @@ export class ChatRepository {
         // only encrypted for group chats (it's the group's name) — a plain username
         // isn't encrypted, so decrypting it unconditionally would just spam
         // decryptText's "not in expected format" warning for every 1:1 chat.
-        return result.rows.map((row: any) => {
-            const decrypted = decryptFields(row, ['contact_avatar', 'last_message_content']);
+        return result.rows.map((row: ChatListItem) => {
+            const decrypted = decryptFields(row, ['contact_avatar', 'last_message_content']) as ChatListItem;
             if (decrypted && decrypted.is_group && decrypted.contact_username) {
                 decrypted.contact_username = decryptText(decrypted.contact_username);
             }
