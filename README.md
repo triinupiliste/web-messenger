@@ -2,11 +2,11 @@
 
 ## Introduction
 
-Web & Mobile Messenger is a real-time, end-to-end chat application with both a Flutter Android client and a Flutter Web client, sharing one codebase. Both connect to the same Node.js, Express, Socket.IO, and PostgreSQL backend, hosted on Railway.
+Web & Mobile Messenger is a real-time, end-to-end chat application with both a Flutter Android client and a Flutter Web client, sharing one codebase. Both connect to the same Node.js, Express, Socket.IO, and PostgreSQL backend. The backend, database, and web client are each deployed as separate services on Railway, so the app can be tried directly with no local setup: the web client at [web-messenger.up.railway.app](https://web-messenger.up.railway.app/), and Android via the APK download below.
 
 Users can create accounts, verify their email addresses, search for and invite contacts, exchange text/image/video/audio messages, chat 1:1 or in groups, create and vote in polls, reply to and manage their own messages, and get push notifications for new messages and invitations. The backend is authoritative: it persists every message, encrypts sensitive data (including email addresses) at rest, compresses video server-side, and pushes real-time updates to connected clients through Socket.IO.
 
-The web client reuses the Android app's codebase, with `kIsWeb`-gated adjustments for browser constraints: gallery-only media picking (no camera capture), hover-revealed message/chat menus instead of long-press/swipe gestures, downloads via the browser's Save dialog instead of the device photo gallery, and a wide-viewport split-pane layout (chat list beside the open chat). See [Run the Web Client](#run-the-web-client) to try it.
+The web client reuses the Android app's codebase, with `kIsWeb`-gated adjustments for browser constraints: gallery-only media picking (no camera capture), hover-revealed message/chat menus instead of long-press/swipe gestures, downloads via the browser's Save dialog instead of the device photo gallery, and a wide-viewport split-pane layout (chat list beside the open chat). See [Quick Start Guide for Reviewers](#quick-start-guide-for-reviewers) to try it.
 
 ## Main Features
 
@@ -37,24 +37,26 @@ The web client reuses the Android app's codebase, with `kIsWeb`-gated adjustment
 | Email | Brevo Email API for verification and password-reset messages |
 | Push notifications | Firebase Cloud Messaging (FCM) with `flutter_local_notifications` |
 | Media | `image_picker`, `record`, `audioplayers`, and server-side `ffmpeg` for photo, video, and voice messages |
+| Media storage | Cloudflare R2 (S3-compatible object storage, via the AWS SDK) for chat media and profile avatars, so uploads survive Railway redeploys |
+| Security | `helmet` (HTTP security headers) and `express-rate-limit` (throttling on auth endpoints, and per-user throttling on poll voting/invites) |
 | UI | `google_fonts` (Manrope typography), `cached_network_image` + `shimmer` (cached, fade-in media with loading placeholders), Material 3 |
-| Deployment | Railway web service, PostgreSQL, and a distributed Android APK. The Flutter web client isn't hosted anywhere yet — see [Run the Web Client](#run-the-web-client) |
+| Deployment | Railway, as three separate services under one project: the Node.js backend, PostgreSQL, and the Flutter web build (containerised with Nginx); plus a distributed Android APK |
 
 ## Quick Start Guide for Reviewers
 
-**[📥 Download Latest APK](https://gitea.kood.tech/triinupiliste/mobile-messenger/releases/download/v1.0.0/app-release.apk)**
+**Web client (simplest — no install needed):** open **[web-messenger.up.railway.app](https://web-messenger.up.railway.app/)** in a browser. It talks to the same hosted Railway backend as the APK below, so both can be used interchangeably (e.g. sign in on both to see real-time sync between them).
+
+**Android APK:** **[📥 Download Latest APK](https://gitea.kood.tech/triinupiliste/web-messenger/releases/download/v1.0.0/app-release.apk)**
 
 The supplied `app-release.apk` is built to use the hosted Railway backend:
 
 ```text
-https://mobile-messenger-production.up.railway.app
+https://web-messenger-production-750e.up.railway.app
 ```
 
 No Flutter, Node.js, database, Docker, ngrok, or local setup is needed to review the released APK. Download it and choose one of the options below.
 
-> Reviewing the web client instead? It isn't hosted anywhere yet — see [Run the Web Client](#run-the-web-client) for how to run it locally against either the hosted Railway backend or your own.
-
-> The app needs an internet connection. Before testing, the Railway service should respond at `https://mobile-messenger-production.up.railway.app/`.
+> The app needs an internet connection. Before testing, the Railway service should respond at `https://web-messenger-production-750e.up.railway.app/`.
 
 ### Option 1: Sideload on an Android Phone (Simplest)
 
@@ -151,14 +153,15 @@ This section is only for developers who want to run their own backend and databa
 - Docker with Docker Compose
 - Flutter SDK and Android build tooling
 - An ngrok account/client when testing from a physical device outside the local network
+- A Cloudflare R2 bucket and API token (R2 is required — the backend won't start without it; see [Configure the Backend](#configure-the-backend))
 - A Brevo account with an API key and verified sender if email verification and password reset should work
 - A Firebase project with an Android app configured, if push notifications should work
 
 ### Clone and Install
 
 ```bash
-git clone https://gitea.kood.tech/triinupiliste/mobile-messenger.git
-cd mobile-messenger
+git clone https://gitea.kood.tech/triinupiliste/web-messenger.git
+cd web-messenger
 cd backend && npm install
 cd ../frontend && flutter pub get
 ```
@@ -173,9 +176,16 @@ APP_BASE_URL=http://localhost:5000/api
 BREVO_API_KEY=replace_with_your_brevo_api_key
 MAIL_FROM=verified-sender@example.com
 MAIL_FROM_NAME=Web & Mobile Messenger
+
+R2_ACCOUNT_ID=replace_with_your_cloudflare_account_id
+R2_ACCESS_KEY_ID=replace_with_your_r2_access_key_id
+R2_SECRET_ACCESS_KEY=replace_with_your_r2_secret_access_key
+R2_BUCKET_NAME=replace_with_your_r2_bucket_name
 ```
 
 `docker-compose.yml` supplies the remaining backend configuration (`DB_*`, `JWT_SECRET`, `ENCRYPTION_KEY`) as environment variables for local use. Replace `JWT_SECRET` and `ENCRYPTION_KEY` with your own strong values before any real deployment.
+
+Unlike `BREVO_API_KEY` and the Firebase credentials below, the `R2_*` variables are **not optional** — `backend/src/config/storage.ts` reads them at startup via a fail-fast `requireEnv()`, so the backend won't boot at all (locally or on Railway) without a valid R2 bucket and API token configured.
 
 To enable outgoing emails, set a Brevo **API key** and a verified sender address in `.env`. The backend uses Brevo's HTTPS Email API, not SMTP.
 
@@ -193,7 +203,7 @@ Run these commands in order:
    docker compose up --build
    ```
 
-2. Confirm the backend is up (look for `🚀 Backend server running on port 5000` in the logs, or check that it responds instead of connection-refused):
+2. Confirm the backend is up (look for `Backend server running on port 5000` in the logs, or check that it responds instead of connection-refused):
 
    ```bash
    curl -i http://localhost:5000/api/auth/login
@@ -238,7 +248,7 @@ To produce a static build instead of running the Chrome dev server:
 flutter build web --dart-define=SERVER_BASE_URL=https://your-backend-host
 ```
 
-The output is written to `frontend/build/web/`. **This build isn't hosted anywhere right now** — there's no Netlify/Vercel/Firebase Hosting config in the repo, and the backend doesn't serve it as static files. To make the web client reachable at a URL instead of only via `flutter run -d chrome`, either deploy `frontend/build/web/` to any static host, or add `express.static('frontend/build/web')` (plus a catch-all route) to [server.ts](backend/src/server.ts) so the existing Railway backend can serve it too.
+The output is written to `frontend/build/web/`. The hosted version at [web-messenger.up.railway.app](https://web-messenger.up.railway.app/) is built exactly this way: [frontend/Dockerfile](frontend/Dockerfile) is a separate Railway service (distinct from the backend) that runs `flutter build web --release` with `SERVER_BASE_URL` baked in from a Railway build argument, then serves the compiled output as static files through Nginx.
 
 Known web-specific differences from the Android app: gallery-only media picking (no camera capture), hover-revealed message/chat menus instead of long-press/swipe, saving media downloads it via the browser instead of the device gallery, and a wide-viewport split-pane layout (chat list beside a single open chat, rather than full-screen navigation).
 
@@ -263,9 +273,10 @@ Keep in mind free ngrok URLs are reassigned every time the tunnel restarts, so a
 ## Code Organisation
 
 ```text
-mobile-messenger/
+web-messenger/
 ├── docker-compose.yml    # Postgres + backend, single-command local stack
 ├── backend/
+│   ├── Dockerfile        # Railway backend service image
 │   ├── database/         # init.sql (auto-applied) and versioned migrations
 │   ├── secrets/          # Firebase service account (not committed)
 │   └── src/
@@ -280,6 +291,7 @@ mobile-messenger/
 │       ├── utils/        # Encryption and validation helpers
 │       └── server.ts     # HTTP and Socket.IO server entry point
 └── frontend/
+    ├── Dockerfile        # Railway web-client service image (Flutter web build served via Nginx)
     ├── web/              # Flutter web entry point (index.html, manifest, icons)
     └── lib/
         ├── config/       # Backend URL configuration
@@ -299,13 +311,13 @@ mobile-messenger/
 - **Server-side video compression:** uploaded videos are re-encoded through `ffmpeg` (H.264/AAC, capped resolution and bitrate) on the backend rather than on-device, which is more reliable across the wide range of Android camera/codec combinations than client-side compression plugins.
 - **Real-time synchronisation:** Socket.IO broadcasts new messages, typing status, read receipts, edits, and deletions to each chat's participants.
 - **Push notifications:** Firebase Cloud Messaging delivers background notifications for new messages and invitations; notifications respect a per-chat mute setting.
-- **Authoritative uploads:** media uploads are stored server-side with generated filenames and served through an authenticated, path-traversal-guarded endpoint rather than static file serving.
+- **Authoritative uploads:** media uploads are stored in Cloudflare R2 (S3-compatible object storage) under generated keys, encrypted the same way as other sensitive fields, and served through an authenticated endpoint rather than being exposed as public static files.
 - **Privacy:** passwords are bcrypt hashes; JWTs authenticate both REST and Socket.IO connections.
 - **Resilience:** a global Flutter error boundary (`runZonedGuarded`, `FlutterError.onError`, a custom `ErrorWidget.builder`) shows a fallback screen instead of crashing or a raw red error screen.
 
 ## Troubleshooting
 
-- **The hosted APK cannot connect:** visit `https://mobile-messenger-production.up.railway.app/`. A non-success response means the Railway service must be redeployed or checked before testing.
+- **The hosted APK or web client cannot connect:** visit `https://web-messenger-production-750e.up.railway.app/`. A non-success response means the Railway backend service must be redeployed or checked before testing.
 - **Local backend cannot connect to PostgreSQL:** run `docker compose up --build`, confirm port `5432` is free, and check the `postgres` service logs.
 - **Verification email is missing:** check spam, ensure the sender is verified in Brevo, and confirm `BREVO_API_KEY` and `MAIL_FROM` are set in `.env`.
 - **Phone cannot reach the local backend:** keep the backend and ngrok tunnel running, then update `serverBaseUrl` in `server_config.dart` with the current ngrok HTTPS address — free ngrok URLs change between sessions.
@@ -313,5 +325,5 @@ mobile-messenger/
 - **Port 5000 or 5432 is occupied:** stop the process already using it, or change the port mapping in `docker-compose.yml`.
 - **Existing data unreadable after a configuration change:** restore the original `ENCRYPTION_KEY`; encrypted messages, profile fields, media, and email addresses all depend on that one stable key.
 - **Video upload fails or times out:** confirm the backend container actually has `ffmpeg` installed (`docker exec -it <container> ffmpeg -version`) and that Railway's plan has enough CPU/time budget for compression on larger videos.
-- **Previously sent media (images/videos/voice notes) becomes unreachable after a new deploy:** `docker-compose.yml`'s `uploads_data` volume only persists uploads for local `docker compose` runs — it has no effect on Railway, which builds directly from the repo. Without a Railway Volume mounted at `/app/uploads` for the backend service, every redeploy gives the container a fresh, empty filesystem and wipes all previously uploaded files (the database rows/encrypted content are unaffected, only the files on disk are lost). Fix: in the Railway dashboard, open the backend service → Settings → Volumes → add a volume mounted at `/app/uploads`, then redeploy. Files lost from before the volume was attached cannot be recovered.
+- **Previously sent media (images/videos/voice notes) becomes unreachable after a local `docker compose` restart:** local dev stores uploads in the `uploads_data` Docker volume; if that volume is removed (e.g. `docker compose down -v`), previously uploaded files are lost (database rows/encrypted content are unaffected, only the files are). This doesn't apply to the hosted Railway deployment, which stores media in Cloudflare R2 rather than the container's local filesystem, so it already survives redeploys.
 - **`flutter run -d chrome` can't reach a local backend / CORS error in the browser console:** confirm the backend is actually running (`docker compose up --build`) and that `NODE_ENV` isn't set to `production` locally — `isOriginAllowed` in [env.ts](backend/src/config/env.ts) only auto-allows `http://localhost:<port>` origins outside of production. Also confirm the `--dart-define=SERVER_BASE_URL=...` value matches the backend's actual host/port.
