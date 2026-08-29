@@ -1,5 +1,4 @@
-// Central place for tunable limits/durations that were previously scattered
-// across individual files as inline magic numbers.
+// Central place for tunable limits/durations
 
 export const BCRYPT_SALT_ROUNDS = 10;
 export const VERIFICATION_TOKEN_LIFETIME_MS = 24 * 60 * 60 * 1000;

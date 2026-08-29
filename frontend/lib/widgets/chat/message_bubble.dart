@@ -357,11 +357,9 @@ class _MessageBubbleState extends State<MessageBubble> {
               child: MouseRegion(
                 onEnter: kIsWeb ? (_) => setState(() => _isHovered = true) : null,
                 onExit: kIsWeb ? (_) => setState(() => _isHovered = false) : null,
-                // The hover button is Positioned with negative offsets so it floats
-                // outside the bubble, but Positioned children don't contribute to
-                // the Stack's layout size — this padding reserves that space so the
-                // button stays inside this MouseRegion's hit-test box (otherwise
-                // moving onto it fires onExit and unmounts it before a click lands).
+                // Reserves space for the hover button, which is Positioned outside
+                // the bubble and wouldn't otherwise count toward this MouseRegion's
+                // hit box (causing onExit to fire and unmount it mid-click).
                 child: Padding(
                   padding: const EdgeInsets.only(top: 8, left: 6, right: 6),
                   child: Stack(

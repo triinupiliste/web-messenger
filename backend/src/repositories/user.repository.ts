@@ -171,10 +171,8 @@ export class UserRepository {
             WHERE (u.username ILIKE $1 OR u.email_hash = $3) AND u.id != $2 AND u.is_verified = TRUE
             ORDER BY u.username
             LIMIT 10`;
-        // Username matches via ILIKE (public, searchable). Email is encrypted at
-        // rest, so it only matches via its deterministic hash — the full address is required.
-        // Unverified accounts are excluded so users can't be found/invited before
-        // confirming their email.
+        // Username matches via ILIKE; email is encrypted at rest so it only
+        // matches via its deterministic hash. Unverified accounts are excluded.
         const result = await pool.query(query, [
             `%${searchTerm}%`,
             currentUserId,

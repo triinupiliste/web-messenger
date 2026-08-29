@@ -5,13 +5,11 @@ import 'package:web/web.dart' as web;
 import 'package:http/http.dart' as http;
 import 'api_service.dart';
 
-/// Generates a first-frame thumbnail for a video message and caches the
-/// result in memory, keyed by URL.
+/// Generates and caches a first-frame thumbnail for a video message, keyed by URL.
 ///
 /// video_thumbnail has no web implementation, so this loads the video into an
-/// off-DOM <video> element, seeks to a frame, and captures it via <canvas>.
-/// The video is fetched into a blob: URL first so the ngrok header can be
-/// attached and the canvas isn't tainted by a cross-origin source.
+/// off-DOM <video> element, seeks a frame, and captures it via <canvas>. Fetched
+/// as a blob: URL first so headers can be attached and the canvas isn't tainted.
 class VideoThumbnailService {
   static final Map<String, Uint8List?> _cache = {};
 

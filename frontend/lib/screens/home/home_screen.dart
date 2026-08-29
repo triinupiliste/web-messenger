@@ -52,14 +52,10 @@ class HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final _profileKey = GlobalKey<ProfileScreenState>();
 
-  // Wide-screen split-pane (Chats tab only): which chat(s) are shown in the
-  // detail pane(s) alongside the chat list. Lives here (not in ChatListScreen)
-  // so it survives switching to another tab and back.
-  //
-  // On web, multiple chats can be open side by side (browser-tab-like); on
-  // mobile this list never holds more than one entry. This is only an upper
-  // bound — _maxPanesFor() further limits panes so they're never squeezed
-  // down to an unusable size.
+  // Wide-screen split-pane (Chats tab only): chat(s) shown in the detail
+  // pane(s). Lives here so it survives switching tabs and back. Web allows
+  // multiple side-by-side panes (mobile only ever holds one); _maxPanesFor()
+  // further limits the actual pane count.
   static const _maxOpenChatsOnWeb = 3;
 
   // Below this width a chat pane's app bar and composer row start clipping,

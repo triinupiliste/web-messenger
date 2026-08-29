@@ -65,9 +65,8 @@ class ChatProvider with ChangeNotifier {
         NotificationSettingsService.setChatMuted(chat.chatId, chat.isMuted);
       }
 
-      // Join every one of this account's chat rooms, not just ones opened this
-      // session, since receive_message/chat_read broadcasts are scoped to the
-      // chat's room and would otherwise only catch up on manual refresh.
+      // Join all chat rooms up front, since broadcasts are scoped per-room
+      // and would otherwise only catch up on manual refresh.
       _joinAllChatRooms();
     } catch (e) {
       debugPrint('Error fetching chats: $e');
@@ -329,10 +328,9 @@ class ChatProvider with ChangeNotifier {
     SocketService.off(SocketEvents.chatListUpdated, _onChatListUpdated);
   }
 
-  // Optimistically zeroes a chat's local unread badge the instant it's opened,
-  // instead of waiting for a future fetchChats()/receive_message to catch it up —
-  // markChatMessagesRead() (called by MessageProvider when the chat loads) updates
-  // the server, but doesn't by itself touch this provider's in-memory chat list.
+  // Zeroes a chat's local unread badge the instant it's opened, since
+  // markChatMessagesRead() (called by MessageProvider on load) updates the
+  // server but doesn't touch this provider's in-memory chat list.
   void markChatRead(String chatId) {
     final index = _chats.indexWhere((c) => c.chatId == chatId);
     if (index == -1 || _chats[index].unreadCount == 0) return;

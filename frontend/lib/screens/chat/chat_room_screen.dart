@@ -27,8 +27,7 @@ import 'create_poll_screen.dart';
 import 'group_info_screen.dart';
 
 // Provides this chat's MessageProvider from the shared per-chatId registry
-// (see MessageProviderRegistry) so its state survives remounts, e.g. the
-// split-pane layout swapping between chats.
+// so its state survives remounts (e.g. the split-pane layout swapping chats).
 class ChatRoomScreen extends StatelessWidget {
   final String chatId;
   final String contactId;
@@ -150,11 +149,9 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     // Suppresses a foreground push notification for this chat while it's open.
     ActiveChatTracker.addActiveChat(widget.chatId);
 
-    // Clears this chat's unread badge in the chat list immediately, instead of
-    // waiting on the async server-side mark-as-read. Deferred to after this
-    // frame since initState() runs mid-build, and a persistent widget like the
-    // bottom-nav badge can otherwise miss the notifyListeners() until some
-    // unrelated later rebuild.
+    // Clears this chat's unread badge immediately instead of waiting on the
+    // async server-side mark-as-read. Deferred to after this frame since
+    // initState() runs mid-build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<ChatProvider>().markChatRead(widget.chatId);
@@ -349,11 +346,9 @@ class _ChatRoomViewState extends State<_ChatRoomView> {
     });
   }
 
-  // Jumps to the latest message when a new one arrives while the chat is open.
-  // Uses jumpTo() instead of scrollTo(): scrollTo() animates toward an estimated
-  // position and visibly "snaps back" once the real size is known; jumpTo()
-  // corrects instantly. Targets the sentinel item (index == messages.length)
-  // so the last message doesn't get pushed off-screen.
+  // Jumps (not animates) to the latest message so it doesn't visibly "snap
+  // back" once the real size is known. Targets the sentinel item so the last
+  // message isn't pushed off-screen.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final messages = _messageProvider.messages;

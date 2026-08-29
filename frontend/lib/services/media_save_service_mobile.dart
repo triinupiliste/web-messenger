@@ -8,10 +8,9 @@ import 'api_service.dart';
 /// without this service needing to know about SnackBars/BuildContext.
 enum MediaSaveResult { saved, permissionDenied, failed }
 
-/// Downloads a chat photo/video (sent or received — same URL either way)
-/// and saves it to the device's photo gallery. Mobile/desktop implementation
-/// (uses gal, which has no web support) — see media_save_service_web.dart for
-/// the browser-download equivalent used when compiling for web.
+/// Downloads a chat photo/video and saves it to the device's gallery.
+/// Mobile/desktop implementation (uses gal, no web support) — see
+/// media_save_service_web.dart for the web equivalent.
 class MediaSaveService {
   static Future<MediaSaveResult> saveNetworkMedia({
     required String url,

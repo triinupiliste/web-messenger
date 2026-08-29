@@ -98,8 +98,8 @@ export function registerChatHandlers(io: Server) {
                     replyToId,
                 );
                 
-                // Broadcast to the chat room; tempId is echoed back (not persisted) so the
-                // sender can reconcile its optimistic message with the saved one.
+                // Broadcast to the room; tempId is echoed back so the sender can
+                // reconcile its optimistic message with the saved one.
                 io.to(chatId).emit('receive_message', { ...savedMessage, tempId });
 
                 // A new message un-archives/un-deletes the chat for anyone who'd

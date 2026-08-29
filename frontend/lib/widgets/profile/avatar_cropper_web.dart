@@ -5,11 +5,9 @@ import 'package:web/web.dart' as web;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
-// Web implementation. image_cropper's web crop UI has multiple unresolved
-// upstream bugs (blank dialog, unselectable crop handles — see
-// hnvn/flutter_image_cropper issues #615, #616, #621), so instead of a broken
-// manual crop UI, this auto-crops the image to a centered square and
-// re-encodes it as JPEG via an offscreen <canvas>.
+// Web implementation. image_cropper's web crop UI has unresolved upstream bugs
+// (see hnvn/flutter_image_cropper #615/#616/#621), so this auto-crops to a
+// centered square and re-encodes as JPEG via an offscreen <canvas> instead.
 Future<Uint8List?> cropAvatarImage(BuildContext context, String sourcePath) async {
   final image = web.HTMLImageElement();
   final loaded = Completer<void>();

@@ -3,8 +3,8 @@ import { Message, MessageStatus, MediaType, MessageReplyPreview } from '../model
 import { encryptText, decryptText } from '../utils/encryption.util';
 import { MESSAGE_STATUS } from '../config/constants';
 
-// Shape of a raw joined row from getMessagesForChat's query (m.* plus the
-// optionally-joined reply-to message's columns, aliased with an r_ prefix).
+// Row shape from getMessagesForChat's query: message columns plus the
+// optionally-joined reply-to message's columns (r_ prefix).
 interface MessageRow {
     id: string;
     chat_id: string;
@@ -47,8 +47,7 @@ export class MessageRepository {
         return msg;
     }
 
-    // Small, decrypted snapshot of the message being replied to, embedded on
-    // the replying message so clients can render a quote inline.
+    // Decrypted snapshot of the replied-to message, for inline quote rendering.
     static async getReplyPreview(messageId: string): Promise<MessageReplyPreview | null> {
         const result = await pool.query(
             'SELECT id, sender_id, content, media_type, is_deleted FROM messages WHERE id = $1',
@@ -118,10 +117,8 @@ export class MessageRepository {
             [chatId, userId],
         );
 
-        // A message only becomes 'read' once every OTHER (non-deleted) participant has
-        // read up to at least that message's timestamp. For a 1:1 chat that's just the
-        // other person; for a group, it means the sender's tick doesn't flip to "read"
-        // until *all* other members have seen it, not just the first one to open the chat.
+        // A message becomes 'read' only once every other participant has read up
+        // to its timestamp — in a group, not just the first person to open the chat.
         const result = await pool.query(
             `UPDATE messages
              SET status = $3
@@ -165,11 +162,9 @@ export class MessageRepository {
         return result.rows[0] || null;
     }
 
-    // Content is encrypted with a random IV per message (AES-256-CBC), so it can't
-    // be filtered in SQL (e.g. ILIKE) — messages are decrypted first (reusing the
-    // same chat history query/rules, including per-user cleared_at), then matched
-    // in application code. Fine at this app's scale; would need a different
-    // approach (e.g. a separate searchable index) if chat histories got huge.
+    // Content is encrypted per-message, so it can't be filtered via SQL ILIKE —
+    // messages are decrypted first, then matched in application code. Fine at
+    // this scale; would need a proper search index if chat histories got huge.
     static async searchMessages(chatId: string, userId: string, query: string): Promise<Message[]> {
         const needle = query.toLowerCase();
         const all = await MessageRepository.getMessagesForChat(chatId, userId);

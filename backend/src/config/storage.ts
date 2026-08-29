@@ -7,11 +7,9 @@ const R2_ACCESS_KEY_ID = requireEnv('R2_ACCESS_KEY_ID');
 const R2_SECRET_ACCESS_KEY = requireEnv('R2_SECRET_ACCESS_KEY');
 const R2_BUCKET_NAME = requireEnv('R2_BUCKET_NAME');
 
-// Cloudflare R2 is S3-API-compatible, so the AWS SDK works against it as-is by
-// pointing at R2's endpoint instead of AWS's. Used instead of local disk
-// storage because uploads on Railway don't survive redeploys otherwise (every
-// deploy starts from a fresh container filesystem, wiping anything written to
-// the old local /uploads directory).
+// Cloudflare R2 is S3-API-compatible, so the AWS SDK works as-is by pointing
+// at R2's endpoint. Used instead of local disk since Railway wipes local
+// files on every redeploy.
 const r2Client = new S3Client({
     region: 'auto',
     endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,

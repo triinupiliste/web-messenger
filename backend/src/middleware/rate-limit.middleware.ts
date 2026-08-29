@@ -1,11 +1,9 @@
 import rateLimit from 'express-rate-limit';
 import { Request } from 'express';
 
-// Rate-limits by authenticated user rather than by IP. These limiters are only
-// ever mounted after verifyToken, so req.user is always populated here — IP-based
-// limiting would be the wrong dimension for them anyway, since multiple legitimate
-// users can share an IP (NAT/mobile carriers/shared wifi), while the actual abuse
-// vector is a single account spamming requests, not anonymous credential stuffing.
+// Rate-limits by authenticated user, not IP — these limiters are only mounted
+// after verifyToken, and the real abuse vector here is one account spamming
+// requests, not shared-IP traffic.
 function userKeyGenerator(req: Request): string {
     return req.user!.userId;
 }

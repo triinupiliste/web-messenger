@@ -25,8 +25,7 @@ export class ChatRepository {
         }
     }
 
-    // Looks for a chat that already exists between these users (e.g. from
-    // before they unfriended) so re-accepting an invite revives it instead of creating a new one.
+    // Finds or revives an existing chat between two users (e.g. after unfriending).
     static async findChatBetweenUsers(user1Id: string, user2Id: string): Promise<string | null> {
         const query = `
             SELECT cp1.chat_id FROM chat_participants cp1
@@ -47,8 +46,8 @@ export class ChatRepository {
 
     // --- Group chats ---
 
-    // Creates a new group chat with just the creator as its sole (owner) member;
-    // additional members are added afterwards via the invite system (see InviteController).
+    // Creates a group chat with just the creator as its sole (owner) member;
+    // members are added afterwards via the invite system.
     static async createGroupChat(creatorId: string, name: string): Promise<string> {
         const client = await pool.connect();
         try {
@@ -196,10 +195,8 @@ export class ChatRepository {
 
         const result = await pool.query(query, [userId]);
 
-        // Decrypt avatar URL and message preview unconditionally; contact_username is
-        // only encrypted for group chats (it's the group's name) — a plain username
-        // isn't encrypted, so decrypting it unconditionally would just spam
-        // decryptText's "not in expected format" warning for every 1:1 chat.
+        // contact_username is only encrypted for groups (it's the group name) — a
+        // plain username isn't, so decrypting it unconditionally would spam warnings.
         return result.rows.map((row: ChatListItem) => {
             const decrypted = decryptFields(row, ['contact_avatar', 'last_message_content']) as ChatListItem;
             if (decrypted && decrypted.is_group && decrypted.contact_username) {

@@ -8,8 +8,8 @@ import 'storage_service.dart';
 
 class SocketService {
   static io.Socket? _socket;
-  // Token the current _socket was created with, so a different user logging in
-  // on the same app process forces a fresh connection instead of reusing this one.
+  // Token the current socket was created with; a different user logging in
+  // forces a fresh connection instead of reusing this one.
   static String? _connectedToken;
 
   // Bumped every time initSocket() creates a new underlying Socket.IO client.

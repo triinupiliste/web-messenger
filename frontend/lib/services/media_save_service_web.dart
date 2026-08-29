@@ -8,20 +8,18 @@ import 'api_service.dart';
 /// without this service needing to know about SnackBars/BuildContext.
 enum MediaSaveResult { saved, permissionDenied, failed }
 
-/// The web platform has no photo gallery to save into — this triggers a
-/// normal browser download instead, which is the closest equivalent UX.
-/// There is no permission prompt on web, so [MediaSaveResult.permissionDenied]
-/// is never returned here.
+/// The web platform has no photo gallery — this triggers a normal browser
+/// download instead. No permission prompt exists on web, so
+/// [MediaSaveResult.permissionDenied] is never returned here.
 class MediaSaveService {
   static Future<MediaSaveResult> saveNetworkMedia({
     required String url,
     required String mediaType,
   }) async {
     try {
-      // <a download> only forces a save (rather than navigating the tab away)
-      // for same-origin URLs, not guaranteed since the backend can be hosted
-      // separately. Fetching the bytes into a blob: URL sidesteps that, since
-      // blob URLs are always same-origin.
+      // <a download> only forces a save (vs. navigating away) for same-origin
+      // URLs, which isn't guaranteed here. Fetching into a blob: URL sidesteps
+      // that, since blob URLs are always same-origin.
       final response = await http.get(Uri.parse(ApiService.mediaUrl(url)));
       if (response.statusCode != 200) return MediaSaveResult.failed;
 

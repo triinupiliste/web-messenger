@@ -27,10 +27,8 @@ export class InviteRepository {
         return result.rows[0];
     }
 
-    // For a 1:1 invite (chatId omitted): blocks a duplicate friend invite/relationship.
-    // For a group invite (chatId given): only blocks a duplicate *pending* invite to
-    // that specific group — the same two users can otherwise have any number of
-    // separate group invites between them, and being friends elsewhere doesn't matter.
+    // 1:1 invites (no chatId) block any duplicate friend relationship; group
+    // invites (chatId given) only block a duplicate *pending* invite to that group.
     static async findExistingInvite(senderId: string, receiverId: string, chatId?: string | null): Promise<Invite | null> {
         const query = chatId
             ? `SELECT * FROM invites 

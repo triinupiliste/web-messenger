@@ -1,10 +1,8 @@
 import pool from '../config/database';
 import { Session } from '../models/session.model';
 
-// Backs multi-device login (mobile + web signed in simultaneously) and
-// selective, per-device logout. Each login creates a new row instead of
-// bumping a single shared counter; a session stays valid until its own
-// `revoked_at` is set, independently of any other session for that user.
+// Backs multi-device login and per-device logout: each login creates a row,
+// and it stays valid until its own `revoked_at` is set.
 export class SessionRepository {
     static async create(userId: string, platform: string, deviceName: string | null): Promise<Session> {
         const result = await pool.query(

@@ -40,9 +40,8 @@ class SocketEvents {
   // so the "Active sessions" screen can live-update without polling.
   static const String sessionsUpdated = 'sessions_updated';
 
-  // Emitted by the server to all of an account's connected devices whenever
-  // this account archives/unarchives, mutes/unmutes, or deletes/restores a
-  // chat from one of its own sessions, so the chat list live-updates on the
-  // account's other devices without a manual refresh.
+  // Emitted to all of an account's connected devices when a chat is
+  // archived/muted/deleted (or restored) from any of its sessions, so the
+  // chat list live-updates elsewhere without a manual refresh.
   static const String chatListUpdated = 'chat_list_updated';
 }
